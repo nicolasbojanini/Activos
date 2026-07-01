@@ -100,9 +100,28 @@ export class ActivosService {
     if (!activo) {
       throw new NotFoundException('Activo no encontrado');
     }
+    return this.toDetailOutput(activo);
+  }
 
+  async buscarPorCodigoQR(
+    organizacionId: string,
+    codigoQR: string,
+  ): Promise<ActivoDetailOutput> {
+    const activo = await this.prisma.activo.findFirst({
+      where: { organizacionId, codigoQR, deletedAt: null },
+      include: { ubicacion: true },
+    });
+    if (!activo) {
+      throw new NotFoundException('No se encontró un activo con ese código QR');
+    }
+    return this.toDetailOutput(activo);
+  }
+
+  private async toDetailOutput(
+    activo: Prisma.ActivoGetPayload<{ include: { ubicacion: true } }>,
+  ): Promise<ActivoDetailOutput> {
     const ultimoRegistro = await this.prisma.registroAuditoria.findFirst({
-      where: { activoId: id },
+      where: { activoId: activo.id },
       orderBy: { auditadoEn: 'desc' },
       include: { auditor: { select: { nombre: true } } },
     });

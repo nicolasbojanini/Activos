@@ -48,3 +48,9 @@ export const listActivosQuerySchema = z.object({
 });
 
 export type ListActivosQuery = z.infer<typeof listActivosQuerySchema>;
+
+export const buscarActivoQuerySchema = z.object({
+  codigoQR: z.string().min(1),
+});
+
+export type BuscarActivoQuery = z.infer<typeof buscarActivoQuerySchema>;

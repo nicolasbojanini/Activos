@@ -5,6 +5,10 @@ import {
   listActivosQuerySchema,
   type ListActivosQueryDto,
 } from './dto/list-activos-query.dto';
+import {
+  buscarActivoQuerySchema,
+  type BuscarActivoQueryDto,
+} from './dto/buscar-activo-query.dto';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import type { AuthenticatedUser } from '../auth/types/authenticated-user';
@@ -25,6 +29,22 @@ export class ActivosController {
     query: ListActivosQueryDto,
   ) {
     return this.activosService.findAll(user.organizacionId, query);
+  }
+
+  @Get('buscar')
+  @ApiOperation({
+    summary:
+      'Resolver un código QR escaneado a un activo (404 → flujo NO_REGISTRADO)',
+  })
+  buscar(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query(new ZodValidationPipe(buscarActivoQuerySchema))
+    query: BuscarActivoQueryDto,
+  ) {
+    return this.activosService.buscarPorCodigoQR(
+      user.organizacionId,
+      query.codigoQR,
+    );
   }
 
   @Get(':id')

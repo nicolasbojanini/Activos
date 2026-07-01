@@ -1,0 +1,243 @@
+import { useState } from 'react';
+import { FlatList, Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useQuery } from '@tanstack/react-query';
+import { ChevronRight, QrCode, Search } from 'lucide-react-native';
+import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { colors, radius, spacing } from '@adn/ui-tokens';
+import type { ActivoListItemOutput } from '@adn/shared';
+import { getActivos, getProyectos, getResumenProyecto } from '../lib/services';
+import { useAuthStore } from '../lib/auth-store';
+import { CircularProgress } from '../components/CircularProgress';
+import { CategoriaIcon } from '../components/CategoriaIcon';
+import { EstadoBadge } from '../components/EstadoBadge';
+import type { RootStackParamList } from '../navigation/types';
+
+const logoWhite = require('../../assets/adn-logo-white.png');
+
+type Props = NativeStackScreenProps<RootStackParamList, 'Inicio'>;
+
+export function InicioScreen({ navigation }: Props) {
+  const usuario = useAuthStore((s) => s.usuario);
+  const [q, setQ] = useState('');
+
+  const { data: proyectos } = useQuery({ queryKey: ['proyectos'], queryFn: getProyectos });
+  const proyecto = proyectos?.[0];
+
+  const { data: resumen } = useQuery({
+    queryKey: ['resumen', proyecto?.id],
+    queryFn: () => getResumenProyecto(proyecto!.id),
+    enabled: !!proyecto,
+  });
+
+  const { data: activos } = useQuery({
+    queryKey: ['activos', proyecto?.id, q],
+    queryFn: () => getActivos({ proyectoId: proyecto!.id, q, pageSize: 50 }),
+    enabled: !!proyecto,
+  });
+
+  const kpis = [
+    { key: 'auditados', label: 'Auditados', value: resumen?.auditados ?? 0, color: colors.state.success },
+    { key: 'pendientes', label: 'Pendientes', value: resumen?.pendientes ?? 0, color: colors.ink[500] },
+    { key: 'diferencias', label: 'Diferencias', value: resumen?.diferencias ?? 0, color: colors.state.warning },
+    { key: 'faltantes', label: 'Faltantes', value: resumen?.faltantes ?? 0, color: colors.state.danger },
+  ];
+
+  const totalRevisados = resumen ? resumen.total - resumen.pendientes : 0;
+
+  const renderItem = ({ item }: { item: ActivoListItemOutput }) => (
+    <Pressable
+      style={styles.row}
+      onPress={() => navigation.navigate('Detalle', { activoId: item.id })}
+    >
+      <CategoriaIcon categoria={item.categoria} />
+      <View style={{ flex: 1, marginLeft: spacing[3] }}>
+        <Text style={styles.rowPlaca}>{item.placa}</Text>
+        <Text style={styles.rowNombre}>{item.nombre}</Text>
+        <Text style={styles.rowUbicacion}>{item.ubicacion?.sede ?? 'Sin ubicación'}</Text>
+      </View>
+      <EstadoBadge estado={item.estado} />
+      <ChevronRight size={18} color={colors.ink[400]} style={{ marginLeft: spacing[2] }} />
+    </Pressable>
+  );
+
+  return (
+    <View style={{ flex: 1, backgroundColor: colors.ink[50] }}>
+      <SafeAreaView edges={['top']} style={styles.header}>
+        <View style={styles.headerTop}>
+          <Image source={logoWhite} style={styles.logo} resizeMode="contain" />
+          <View style={styles.avatar}>
+            <Text style={styles.avatarLabel}>{usuario?.nombre?.[0]?.toUpperCase() ?? '?'}</Text>
+          </View>
+        </View>
+
+        <Text style={styles.eyebrow}>SESIÓN DE AUDITORÍA</Text>
+        <Text style={styles.proyectoNombre} numberOfLines={2}>
+          {proyecto?.nombre ?? 'Cargando…'}
+        </Text>
+
+        <View style={styles.avanceCard}>
+          <CircularProgress pct={resumen?.pct ?? 0} size={72} strokeWidth={7}>
+            <Text style={styles.avancePct}>{resumen ? Math.round(resumen.pct * 100) : 0}%</Text>
+          </CircularProgress>
+          <View style={{ marginLeft: spacing[4] }}>
+            <Text style={styles.avanceLabel}>Avance de la auditoría</Text>
+            <Text style={styles.avanceDetalle}>
+              {totalRevisados} / {resumen?.total ?? 0} revisados
+            </Text>
+          </View>
+        </View>
+      </SafeAreaView>
+
+      <View style={styles.kpiRow}>
+        {kpis.map((kpi) => (
+          <View key={kpi.key} style={styles.kpiCard}>
+            <View style={[styles.kpiDot, { backgroundColor: kpi.color }]} />
+            <Text style={styles.kpiValue}>{kpi.value}</Text>
+            <Text style={styles.kpiLabel}>{kpi.label}</Text>
+          </View>
+        ))}
+      </View>
+
+      <View style={styles.searchWrap}>
+        <Search size={16} color={colors.ink[400]} />
+        <TextInput
+          value={q}
+          onChangeText={setQ}
+          placeholder="Buscar por placa, nombre o ubicación"
+          style={styles.searchInput}
+        />
+      </View>
+
+      <FlatList
+        data={activos?.data ?? []}
+        keyExtractor={(item) => item.id}
+        renderItem={renderItem}
+        contentContainerStyle={{ paddingHorizontal: spacing[4], paddingBottom: 100 }}
+        ListEmptyComponent={<Text style={styles.empty}>No hay activos que coincidan con la búsqueda.</Text>}
+      />
+
+      <SafeAreaView edges={['bottom']} style={styles.ctaWrap}>
+        <Pressable
+          onPress={() => navigation.navigate('Escaneo')}
+          style={styles.ctaButton}
+        >
+          <QrCode size={20} color="#fff" strokeWidth={1.8} />
+          <Text style={styles.ctaLabel}>Escanear código QR</Text>
+        </Pressable>
+      </SafeAreaView>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  header: {
+    backgroundColor: colors.brand.blue,
+    paddingHorizontal: spacing[4],
+    paddingBottom: spacing[6],
+  },
+  headerTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: spacing[2] },
+  logo: { width: 90, height: 20, tintColor: '#fff' },
+  avatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarLabel: { color: '#fff', fontWeight: '600', fontSize: 13 },
+  eyebrow: {
+    marginTop: spacing[6],
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 1.5,
+    color: 'rgba(255,255,255,0.75)',
+  },
+  proyectoNombre: { fontSize: 20, fontWeight: '600', color: '#fff', marginTop: spacing[1], marginBottom: spacing[4] },
+  avanceCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderRadius: radius.lg,
+    padding: spacing[4],
+  },
+  avancePct: { color: '#fff', fontWeight: '700', fontSize: 16 },
+  avanceLabel: { color: '#fff', fontWeight: '600', fontSize: 13, marginBottom: spacing[1] },
+  avanceDetalle: { color: 'rgba(255,255,255,0.75)', fontSize: 12 },
+  kpiRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing[2],
+    paddingHorizontal: spacing[4],
+    marginTop: -spacing[4],
+    marginBottom: spacing[3],
+  },
+  kpiCard: {
+    flexBasis: '48%',
+    flexGrow: 1,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: colors.ink[200],
+    borderRadius: radius.md,
+    padding: spacing[3],
+  },
+  kpiDot: { width: 8, height: 8, borderRadius: 4, marginBottom: spacing[2] },
+  kpiValue: { fontSize: 20, fontWeight: '700', color: colors.brand.black },
+  kpiLabel: { fontSize: 12, color: colors.ink[500] },
+  searchWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[2],
+    marginHorizontal: spacing[4],
+    marginBottom: spacing[3],
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: colors.ink[200],
+    borderRadius: radius.md,
+    paddingHorizontal: spacing[3],
+    paddingVertical: spacing[2] + 2,
+  },
+  searchInput: { flex: 1, fontSize: 14 },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: radius.lg,
+    padding: spacing[3],
+    marginBottom: spacing[2],
+    shadowColor: '#0B2E4F',
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 1,
+  },
+  rowPlaca: { fontFamily: 'monospace', color: colors.brand.blue, fontWeight: '600', fontSize: 13 },
+  rowNombre: { fontSize: 14, fontWeight: '600', color: colors.brand.black, marginTop: 1 },
+  rowUbicacion: { fontSize: 12, color: colors.ink[500], marginTop: 1 },
+  empty: { textAlign: 'center', color: colors.ink[500], marginTop: spacing[6] },
+  ctaWrap: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: colors.ink[50],
+    paddingHorizontal: spacing[4],
+    paddingTop: spacing[2],
+  },
+  ctaButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing[2],
+    backgroundColor: colors.brand.blue,
+    borderRadius: radius.md,
+    paddingVertical: spacing[3] + 2,
+    shadowColor: colors.brand.blue,
+    shadowOpacity: 0.35,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 3,
+  },
+  ctaLabel: { color: '#fff', fontWeight: '600', fontSize: 14 },
+});
