@@ -1,0 +1,14 @@
+appId: com.adn.auditoria
+---
+# Requiere el entorno seedeado (pnpm db:seed) y la app apuntando a esa API
+# (ver EXPO_PUBLIC_API_URL en apps/mobile/.env).
+- launchApp:
+    clearState: true
+- assertVisible: "Inicia sesión"
+- tapOn: "Correo electrónico"
+- inputText: "auditor@adn.demo"
+- tapOn: "Contraseña"
+- inputText: "adn12345"
+- tapOn: "Ingresar"
+- assertVisible: "SESIÓN DE AUDITORÍA"
+- assertVisible: "Escanear código QR"

@@ -1,0 +1,26 @@
+appId: com.adn.auditoria
+---
+# Camino dorado: login → escanear (código manual, ya que Maestro no simula la
+# cámara) → ficha del activo → confirmar → pantalla de confirmación.
+# Requiere el entorno seedeado con el activo de placa ADN-004804.
+- launchApp:
+    clearState: true
+- tapOn: "Correo electrónico"
+- inputText: "auditor@adn.demo"
+- tapOn: "Contraseña"
+- inputText: "adn12345"
+- tapOn: "Ingresar"
+- assertVisible: "Escanear código QR"
+- tapOn: "Escanear código QR"
+- assertVisible: "Ingresar código manualmente"
+- tapOn: "Ingresar código manualmente"
+- tapOn: "Código del activo"
+- inputText: "ADN-004804"
+- tapOn: "Buscar"
+- assertVisible: "Detalle del activo"
+- assertVisible: "Confirmar que coincide"
+- tapOn: "Confirmar que coincide"
+- assertVisible: "Escanear siguiente activo"
+- assertVisible: "Volver a la lista"
+- tapOn: "Volver a la lista"
+- assertVisible: "SESIÓN DE AUDITORÍA"

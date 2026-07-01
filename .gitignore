@@ -12,3 +12,6 @@ coverage/
 apps/mobile/ios/
 apps/mobile/android/
 apps/api/generated/
+apps/web/test-results/
+apps/web/playwright-report/
+apps/web/blob-report/
