@@ -1,0 +1,14 @@
+node_modules/
+dist/
+build/
+.turbo/
+.expo/
+.expo-shared/
+.env
+.env.local
+*.log
+.DS_Store
+coverage/
+apps/mobile/ios/
+apps/mobile/android/
+apps/api/generated/

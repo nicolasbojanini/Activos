@@ -1,0 +1,62 @@
+:root {
+  /* Marca */
+  --adn-blue: #0073cf;
+  --adn-black: #101114;
+  --adn-white: #ffffff;
+
+  /* Azul */
+  --adn-blue-50: #eaf4fd;
+  --adn-blue-100: #cfe6fa;
+  --adn-blue-200: #9eccf3;
+  --adn-blue-400: #2a8cdd;
+  --adn-blue-600: #005dab;
+  --adn-blue-700: #004986;
+  --adn-blue-900: #0b2e4f;
+
+  /* Neutros (ink) */
+  --adn-ink-50: #f6f8fa;
+  --adn-ink-100: #eef1f5;
+  --adn-ink-200: #e0e5ec;
+  --adn-ink-300: #c2c9d3;
+  --adn-ink-400: #97a1b0;
+  --adn-ink-500: #6a7585;
+  --adn-ink-600: #475160;
+  --adn-ink-700: #2e343d;
+  --adn-ink-900: #101114;
+
+  /* Estado */
+  --adn-success: #1f9d63;
+  --adn-success-bg: #e7f5ee;
+  --adn-warning: #d8920a;
+  --adn-warning-bg: #fbf1dc;
+  --adn-danger: #d6453f;
+  --adn-danger-bg: #fbe9e8;
+
+  /* Tipografía */
+  --adn-font-display: 'Poppins', system-ui, sans-serif;
+  --adn-font-text: 'Jost', system-ui, sans-serif;
+
+  /* Espaciado (base 4px) */
+  --adn-space-1: 4px;
+  --adn-space-2: 8px;
+  --adn-space-3: 12px;
+  --adn-space-4: 16px;
+  --adn-space-6: 24px;
+  --adn-space-8: 32px;
+  --adn-space-10: 40px;
+  --adn-space-16: 64px;
+
+  /* Radios */
+  --adn-radius-sm: 4px;
+  --adn-radius-md: 8px;
+  --adn-radius-lg: 14px;
+  --adn-radius-xl: 20px;
+  --adn-radius-pill: 999px;
+
+  /* Sombras */
+  --shadow-brand: 0 8px 24px rgba(0, 115, 207, 0.35);
+
+  /* Motion */
+  --adn-motion-duration: 200ms;
+  --adn-motion-easing: ease-out;
+}

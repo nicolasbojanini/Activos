@@ -1,0 +1,35 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: adn
+      POSTGRES_PASSWORD: adn
+      POSTGRES_DB: adn_auditoria
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: adn
+      MINIO_ROOT_PASSWORD: adn12345
+    ports:
+      - "9000:9000" # S3 API
+      - "9001:9001" # Consola web
+    volumes:
+      - minio_data:/data
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
+volumes:
+  postgres_data:
+  minio_data:
