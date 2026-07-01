@@ -1,0 +1,178 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Rol {
+  COORDINADOR
+  AUDITOR
+}
+
+enum EstadoAuditoria {
+  PENDIENTE
+  AUDITADO
+  DIFERENCIA
+  FALTANTE
+  NO_REGISTRADO
+}
+
+enum EstadoFisico {
+  BUENO
+  REGULAR
+  MALO
+  BAJA
+}
+
+enum CategoriaActivo {
+  EQUIPOS_COMPUTO
+  MOBILIARIO
+  MAQUINARIA
+  VEHICULOS
+  HERRAMIENTAS
+  OTRO
+}
+
+model Organizacion {
+  id          String               @id @default(cuid())
+  nombre      String
+  nit         String?              @unique
+  usuarios    Usuario[]
+  activos     Activo[]
+  proyectos   ProyectoAuditoria[]
+  ubicaciones Ubicacion[]
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+}
+
+model Usuario {
+  id             String   @id @default(cuid())
+  organizacionId String
+  organizacion   Organizacion @relation(fields: [organizacionId], references: [id])
+  nombre         String
+  email          String   @unique
+  passwordHash   String
+  rol            Rol      @default(AUDITOR)
+  activo         Boolean  @default(true)
+  registros      RegistroAuditoria[]
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model Ubicacion {
+  id             String   @id @default(cuid())
+  organizacionId String
+  organizacion   Organizacion @relation(fields: [organizacionId], references: [id])
+  sede           String
+  detalle        String?
+  activos        Activo[]
+}
+
+model ProyectoAuditoria {
+  id             String   @id @default(cuid())
+  organizacionId String
+  organizacion   Organizacion @relation(fields: [organizacionId], references: [id])
+  nombre         String
+  fechaCorte     DateTime
+  cerrado        Boolean  @default(false)
+  registros      RegistroAuditoria[]
+  lotes          LoteImportacion[]
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model Activo {
+  id             String   @id @default(cuid())
+  organizacionId String
+  organizacion   Organizacion @relation(fields: [organizacionId], references: [id])
+
+  // — Identificación —
+  placa          String
+  codigoQR       String
+  nombre         String
+  categoria      CategoriaActivo
+
+  // — Especificación —
+  marca          String?
+  modelo         String?
+  serie          String?
+
+  // — Ubicación y responsable —
+  ubicacionId    String?
+  ubicacion      Ubicacion? @relation(fields: [ubicacionId], references: [id])
+  responsable    String?
+  centroCosto    String?
+
+  // — Estado y financiero —
+  estadoFisico     EstadoFisico @default(BUENO)
+  fechaAdquisicion DateTime?
+  valorLibros      Decimal?    @db.Decimal(14, 2)
+  proveedor        String?
+  vidaUtilMeses    Int?
+
+  registros      RegistroAuditoria[]
+  deletedAt      DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([organizacionId, placa])
+  @@index([organizacionId, codigoQR])
+}
+
+model RegistroAuditoria {
+  id           String   @id @default(cuid())
+  proyectoId   String
+  proyecto     ProyectoAuditoria @relation(fields: [proyectoId], references: [id])
+  activoId     String?
+  activo       Activo?  @relation(fields: [activoId], references: [id])
+  auditorId    String
+  auditor      Usuario  @relation(fields: [auditorId], references: [id])
+
+  estado       EstadoAuditoria
+  estadoFisico EstadoFisico?
+  cambios      Json?
+  nota         String?
+  lat          Float?
+  lng          Float?
+  auditadoEn   DateTime
+  fotos        Foto[]
+
+  // — Sincronización offline —
+  clientId     String   @unique
+  syncedAt     DateTime @default(now())
+
+  createdAt    DateTime @default(now())
+
+  @@index([proyectoId, estado])
+}
+
+model Foto {
+  id         String   @id @default(cuid())
+  registroId String
+  registro   RegistroAuditoria @relation(fields: [registroId], references: [id])
+  s3Key      String
+  etiqueta   String?
+  ancho      Int?
+  alto       Int?
+  bytes      Int?
+  orden      Int      @default(0)
+  createdAt  DateTime @default(now())
+}
+
+model LoteImportacion {
+  id                String   @id @default(cuid())
+  proyectoId        String
+  proyecto          ProyectoAuditoria @relation(fields: [proyectoId], references: [id])
+  archivoNombre     String
+  s3Key             String?
+  filasTotales      Int
+  filasCreadas      Int
+  filasActualizadas Int
+  filasError        Int
+  erroresJson       Json?
+  autorId           String
+  createdAt         DateTime @default(now())
+}
