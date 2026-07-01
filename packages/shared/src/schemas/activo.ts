@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { CategoriaActivo, EstadoFisico } from '../enums';
+import { CategoriaActivo, EstadoAuditoria, EstadoFisico } from '../enums';
 
 /** Los 13+ campos mínimos de ficha (ver 02-MODELO-DE-DATOS.md). */
 export const activoSchema = z.object({
@@ -37,3 +37,14 @@ export const activoImportRowSchema = activoSchema.omit({
 });
 
 export type ActivoImportRow = z.infer<typeof activoImportRowSchema>;
+
+export const listActivosQuerySchema = z.object({
+  proyectoId: z.string(),
+  q: z.string().optional(),
+  estado: z.nativeEnum(EstadoAuditoria).optional(),
+  ubicacion: z.string().optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(20),
+});
+
+export type ListActivosQuery = z.infer<typeof listActivosQuerySchema>;
