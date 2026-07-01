@@ -9,13 +9,14 @@ import * as Crypto from 'expo-crypto';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { EstadoFisico } from '@adn/shared';
 import { colors, radius, spacing } from '@adn/ui-tokens';
-import { apiFetch } from '../lib/api';
-import { getActivo, crearRegistro } from '../lib/services';
+import { obtenerActivoLocal, listarUbicacionesLocal } from '../db/sync';
 import { useProyectoActual } from '../lib/useProyectoActual';
+import { encolarRegistro } from '../lib/registro-offline';
+import { capturarFoto, eliminarFotoLocal, type FotoCapturada } from '../lib/fotos';
 import { HeaderBar } from '../components/HeaderBar';
 import { PrimaryButton } from '../components/PrimaryButton';
+import { FotosGrid } from '../components/FotosGrid';
 import type { RootStackParamList } from '../navigation/types';
-import type { UbicacionOutput } from '@adn/shared';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Actualizar'>;
 
@@ -47,13 +48,25 @@ export function ActualizarScreen({ route, navigation }: Props) {
   const { activoId } = route.params;
   const { proyecto } = useProyectoActual();
   const [enviando, setEnviando] = useState(false);
+  const [fotos, setFotos] = useState<FotoCapturada[]>([]);
   const queryClient = useQueryClient();
 
-  const { data: activo } = useQuery({ queryKey: ['activo', activoId], queryFn: () => getActivo(activoId) });
-  const { data: ubicaciones } = useQuery({
-    queryKey: ['ubicaciones'],
-    queryFn: () => apiFetch<UbicacionOutput[]>('/ubicaciones'),
+  const handleCapturarFoto = async (etiqueta: string, orden: number) => {
+    const foto = await capturarFoto(etiqueta, orden);
+    if (foto) setFotos((prev) => [...prev.filter((f) => f.orden !== orden), foto]);
+  };
+
+  const handleQuitarFoto = (orden: number) => {
+    const foto = fotos.find((f) => f.orden === orden);
+    if (foto) eliminarFotoLocal(foto.clientPhotoId);
+    setFotos((prev) => prev.filter((f) => f.orden !== orden));
+  };
+
+  const { data: resultado } = useQuery({
+    queryKey: ['activo-local', activoId],
+    queryFn: () => obtenerActivoLocal(activoId),
   });
+  const { data: ubicaciones } = useQuery({ queryKey: ['ubicaciones-local'], queryFn: listarUbicacionesLocal });
 
   const {
     control,
@@ -66,24 +79,25 @@ export function ActualizarScreen({ route, navigation }: Props) {
   });
 
   useEffect(() => {
-    if (activo) {
+    if (resultado) {
       reset({
-        estadoFisico: activo.estadoFisico,
-        ubicacionId: activo.ubicacion?.id ?? null,
-        responsable: activo.responsable ?? '',
-        centroCosto: activo.centroCosto ?? '',
+        estadoFisico: resultado.activo.estadoFisico as FormValues['estadoFisico'],
+        ubicacionId: resultado.activo.ubicacionId,
+        responsable: resultado.activo.responsable ?? '',
+        centroCosto: resultado.activo.centroCosto ?? '',
         nota: '',
       });
     }
-  }, [activo, reset]);
+  }, [resultado, reset]);
 
   const onSubmit = async (values: FormValues) => {
-    if (!proyecto || !activo) return;
+    if (!proyecto || !resultado) return;
     setEnviando(true);
+    const { activo } = resultado;
 
     const cambios: Record<string, { antes: unknown; despues: unknown }> = {};
-    if (values.ubicacionId !== (activo.ubicacion?.id ?? null)) {
-      cambios.ubicacionId = { antes: activo.ubicacion?.id ?? null, despues: values.ubicacionId };
+    if (values.ubicacionId !== activo.ubicacionId) {
+      cambios.ubicacionId = { antes: activo.ubicacionId, despues: values.ubicacionId };
     }
     if ((values.responsable || null) !== (activo.responsable ?? null)) {
       cambios.responsable = { antes: activo.responsable, despues: values.responsable || null };
@@ -99,7 +113,7 @@ export function ActualizarScreen({ route, navigation }: Props) {
     const estado = hayDiferencias ? 'DIFERENCIA' : 'AUDITADO';
 
     try {
-      await crearRegistro({
+      await encolarRegistro({
         clientId: Crypto.randomUUID(),
         proyectoId: proyecto.id,
         activoId: activo.id,
@@ -108,11 +122,20 @@ export function ActualizarScreen({ route, navigation }: Props) {
         cambios: hayDiferencias ? cambios : undefined,
         nota: values.nota,
         auditadoEn: new Date(),
-        fotos: [],
+        fotos: fotos.map(({ clientPhotoId, etiqueta, orden, ancho, alto }) => ({
+          clientPhotoId,
+          etiqueta,
+          orden,
+          ancho,
+          alto,
+        })),
+        placaSnapshot: activo.placa,
+        nombreSnapshot: activo.nombre,
       });
-      await queryClient.invalidateQueries({ queryKey: ['resumen'] });
-      await queryClient.invalidateQueries({ queryKey: ['activos'] });
-      await queryClient.invalidateQueries({ queryKey: ['activo', activoId] });
+      void queryClient.invalidateQueries({ queryKey: ['resumen-local'] });
+      void queryClient.invalidateQueries({ queryKey: ['activos-local'] });
+      void queryClient.invalidateQueries({ queryKey: ['activo-local', activoId] });
+      void queryClient.invalidateQueries({ queryKey: ['pendientes-sync'] });
       navigation.replace('Confirmacion', {
         resultado: estado,
         titulo: hayDiferencias ? 'Diferencia registrada' : 'Activo confirmado',
@@ -128,13 +151,15 @@ export function ActualizarScreen({ route, navigation }: Props) {
     }
   };
 
-  if (!activo) {
+  if (!resultado) {
     return (
       <SafeAreaView style={styles.loading}>
         <Text>Cargando…</Text>
       </SafeAreaView>
     );
   }
+
+  const { activo } = resultado;
 
   return (
     <View style={{ flex: 1, backgroundColor: '#fff' }}>
@@ -219,6 +244,8 @@ export function ActualizarScreen({ route, navigation }: Props) {
           )}
         />
         {errors.nota && <Text style={styles.errorTexto}>{errors.nota.message}</Text>}
+
+        <FotosGrid fotos={fotos} onCapturar={handleCapturarFoto} onQuitar={handleQuitarFoto} />
       </ScrollView>
 
       <SafeAreaView edges={['bottom']} style={styles.acciones}>

@@ -247,7 +247,11 @@ export function Auditorias() {
               </tr>
             )}
             {table.getRowModel().rows.map((row) => (
-              <tr key={row.id} style={{ borderTop: '1px solid var(--adn-ink-100)' }}>
+              <tr
+                key={row.id}
+                onClick={() => navigate(`/activos/${row.original.id}`)}
+                style={{ borderTop: '1px solid var(--adn-ink-100)', cursor: 'pointer' }}
+              >
                 {row.getVisibleCells().map((cell) => (
                   <td key={cell.id} style={{ padding: '10px 20px' }}>
                     {flexRender(cell.column.columnDef.cell, cell.getContext())}

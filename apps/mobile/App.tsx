@@ -7,6 +7,7 @@ import { StatusBar } from 'expo-status-bar';
 import { colors } from '@adn/ui-tokens';
 import { RootNavigator } from './src/navigation/RootNavigator';
 import { useAuthStore } from './src/lib/auth-store';
+import { inicializarBaseLocal } from './src/db/client';
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1 } },
@@ -17,6 +18,7 @@ export default function App() {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
+    inicializarBaseLocal();
     hydrate().finally(() => setReady(true));
   }, [hydrate]);
 

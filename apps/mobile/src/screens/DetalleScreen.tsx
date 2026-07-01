@@ -5,9 +5,10 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import * as Crypto from 'expo-crypto';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { colors, radius, spacing } from '@adn/ui-tokens';
-import type { ActivoDetailOutput } from '@adn/shared';
-import { getActivo, crearRegistro } from '../lib/services';
+import type { EstadoFisico } from '@adn/shared';
+import { obtenerActivoLocal } from '../db/sync';
 import { useProyectoActual } from '../lib/useProyectoActual';
+import { encolarRegistro } from '../lib/registro-offline';
 import { EstadoBadge } from '../components/EstadoBadge';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { HeaderBar } from '../components/HeaderBar';
@@ -15,14 +16,14 @@ import type { RootStackParamList } from '../navigation/types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Detalle'>;
 
-const ESTADO_FISICO_LABEL: Record<ActivoDetailOutput['estadoFisico'], string> = {
+const ESTADO_FISICO_LABEL: Record<EstadoFisico, string> = {
   BUENO: 'Bueno',
   REGULAR: 'Regular',
   MALO: 'Malo',
   BAJA: 'De baja',
 };
 
-function ficha(activo: ActivoDetailOutput) {
+function ficha(activo: NonNullable<Awaited<ReturnType<typeof obtenerActivoLocal>>>['activo']) {
   return [
     { label: 'Placa', valor: activo.placa },
     { label: 'Código QR', valor: activo.codigoQR },
@@ -31,10 +32,10 @@ function ficha(activo: ActivoDetailOutput) {
     { label: 'Marca', valor: activo.marca ?? '—' },
     { label: 'Modelo', valor: activo.modelo ?? '—' },
     { label: 'N° de serie', valor: activo.serie ?? '—' },
-    { label: 'Ubicación', valor: activo.ubicacion?.sede ?? '—' },
+    { label: 'Ubicación', valor: activo.ubicacionSede ?? '—' },
     { label: 'Responsable', valor: activo.responsable ?? '—' },
     { label: 'Centro de costo', valor: activo.centroCosto ?? '—' },
-    { label: 'Estado físico', valor: ESTADO_FISICO_LABEL[activo.estadoFisico] },
+    { label: 'Estado físico', valor: ESTADO_FISICO_LABEL[activo.estadoFisico as EstadoFisico] },
     {
       label: 'Fecha de adquisición',
       valor: activo.fechaAdquisicion ? new Date(activo.fechaAdquisicion).toLocaleDateString('es-CO') : '—',
@@ -51,26 +52,33 @@ export function DetalleScreen({ route, navigation }: Props) {
   const [enviando, setEnviando] = useState(false);
   const queryClient = useQueryClient();
 
-  const { data: activo, refetch } = useQuery({
-    queryKey: ['activo', activoId],
-    queryFn: () => getActivo(activoId),
+  const { data: resultado } = useQuery({
+    queryKey: ['activo-local', activoId],
+    queryFn: () => obtenerActivoLocal(activoId),
   });
 
+  const invalidarLocal = () => {
+    void queryClient.invalidateQueries({ queryKey: ['resumen-local'] });
+    void queryClient.invalidateQueries({ queryKey: ['activos-local'] });
+    void queryClient.invalidateQueries({ queryKey: ['activo-local', activoId] });
+    void queryClient.invalidateQueries({ queryKey: ['pendientes-sync'] });
+  };
+
   const enviarRegistro = async (estado: 'AUDITADO' | 'FALTANTE') => {
-    if (!proyecto || !activo) return;
+    if (!proyecto || !resultado) return;
     setEnviando(true);
     try {
-      await crearRegistro({
+      await encolarRegistro({
         clientId: Crypto.randomUUID(),
         proyectoId: proyecto.id,
-        activoId: activo.id,
+        activoId: resultado.activo.id,
         estado,
         auditadoEn: new Date(),
         fotos: [],
+        placaSnapshot: resultado.activo.placa,
+        nombreSnapshot: resultado.activo.nombre,
       });
-      await queryClient.invalidateQueries({ queryKey: ['resumen'] });
-      await queryClient.invalidateQueries({ queryKey: ['activos'] });
-      await queryClient.invalidateQueries({ queryKey: ['activo', activoId] });
+      invalidarLocal();
       navigation.replace('Confirmacion', {
         resultado: estado,
         titulo: estado === 'AUDITADO' ? 'Activo confirmado' : 'Faltante reportado',
@@ -78,8 +86,8 @@ export function DetalleScreen({ route, navigation }: Props) {
           estado === 'AUDITADO'
             ? 'El activo coincide con la ficha registrada.'
             : 'Se registró el activo como faltante en esta auditoría.',
-        nombreActivo: activo.nombre,
-        placa: activo.placa,
+        nombreActivo: resultado.activo.nombre,
+        placa: resultado.activo.placa,
       });
     } catch {
       Alert.alert('Error', 'No se pudo guardar el registro. Intenta de nuevo.');
@@ -94,13 +102,15 @@ export function DetalleScreen({ route, navigation }: Props) {
     ]);
   };
 
-  if (!activo) {
+  if (!resultado) {
     return (
       <SafeAreaView style={styles.loading}>
         <Text>Cargando ficha…</Text>
       </SafeAreaView>
     );
   }
+
+  const { activo, estadoEfectivo } = resultado;
 
   return (
     <View style={{ flex: 1, backgroundColor: '#fff' }}>
@@ -111,12 +121,12 @@ export function DetalleScreen({ route, navigation }: Props) {
         rightBadge={escaneado ? 'Escaneado' : undefined}
       />
 
-      <ScrollView contentContainerStyle={{ padding: spacing[4], paddingBottom: 160 }} onScrollEndDrag={() => void refetch()}>
+      <ScrollView contentContainerStyle={{ padding: spacing[4], paddingBottom: 160 }}>
         <Text style={styles.titulo}>{activo.nombre}</Text>
         <View style={styles.badgesRow}>
-          <EstadoBadge estado={activo.estado} />
+          <EstadoBadge estado={estadoEfectivo} />
           <View style={styles.chip}>
-            <Text style={styles.chipLabel}>Estado físico: {ESTADO_FISICO_LABEL[activo.estadoFisico]}</Text>
+            <Text style={styles.chipLabel}>Estado físico: {ESTADO_FISICO_LABEL[activo.estadoFisico as EstadoFisico]}</Text>
           </View>
         </View>
 

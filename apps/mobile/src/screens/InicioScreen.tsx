@@ -1,16 +1,26 @@
-import { useState } from 'react';
-import { FlatList, Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, FlatList, Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useQuery } from '@tanstack/react-query';
-import { ChevronRight, QrCode, Search } from 'lucide-react-native';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { ChevronRight, CloudOff, QrCode, RefreshCw, Search } from 'lucide-react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { colors, radius, spacing } from '@adn/ui-tokens';
-import type { ActivoListItemOutput } from '@adn/shared';
-import { getActivos, getProyectos, getResumenProyecto } from '../lib/services';
+import type { CategoriaActivo } from '@adn/shared';
+import { getProyectos } from '../lib/services';
 import { useAuthStore } from '../lib/auth-store';
 import { CircularProgress } from '../components/CircularProgress';
 import { CategoriaIcon } from '../components/CategoriaIcon';
 import { EstadoBadge } from '../components/EstadoBadge';
+import {
+  calcularResumenLocal,
+  descargarSesion,
+  haySesionDescargada,
+  listarActivosLocal,
+  obtenerProyectoActivo,
+  type ActivoLocalConEstado,
+} from '../db/sync';
+import { sincronizarPendientes } from '../lib/registro-offline';
+import { useConectividad } from '../lib/useConectividad';
 import type { RootStackParamList } from '../navigation/types';
 
 const logoWhite = require('../../assets/adn-logo-white.png');
@@ -19,21 +29,67 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Inicio'>;
 
 export function InicioScreen({ navigation }: Props) {
   const usuario = useAuthStore((s) => s.usuario);
+  const queryClient = useQueryClient();
   const [q, setQ] = useState('');
+  const [sincronizando, setSincronizando] = useState(false);
 
-  const { data: proyectos } = useQuery({ queryKey: ['proyectos'], queryFn: getProyectos });
-  const proyecto = proyectos?.[0];
+  const invalidarLocal = () => {
+    void queryClient.invalidateQueries({ queryKey: ['proyecto-local'] });
+    void queryClient.invalidateQueries({ queryKey: ['resumen-local'] });
+    void queryClient.invalidateQueries({ queryKey: ['activos-local'] });
+    void queryClient.invalidateQueries({ queryKey: ['pendientes-sync'] });
+  };
 
-  const { data: resumen } = useQuery({
-    queryKey: ['resumen', proyecto?.id],
-    queryFn: () => getResumenProyecto(proyecto!.id),
-    enabled: !!proyecto,
+  const ejecutarSincronizacion = async () => {
+    setSincronizando(true);
+    try {
+      await sincronizarPendientes();
+      invalidarLocal();
+    } finally {
+      setSincronizando(false);
+    }
+  };
+
+  const conectado = useConectividad(() => void ejecutarSincronizacion());
+
+  // Bootstrap: intenta refrescar el espejo local con red; si falla, sigue con lo que ya haya local.
+  useEffect(() => {
+    async function bootstrap() {
+      try {
+        const proyectos = await getProyectos();
+        const proyecto = proyectos[0];
+        if (proyecto) {
+          const yaHaySesion = await haySesionDescargada();
+          if (!yaHaySesion) {
+            await descargarSesion(proyecto);
+          } else {
+            const { guardarProyectoActivo } = await import('../db/sync');
+            await guardarProyectoActivo(proyecto);
+          }
+          void queryClient.invalidateQueries({ queryKey: ['proyecto-local'] });
+          void queryClient.invalidateQueries({ queryKey: ['resumen-local'] });
+          void queryClient.invalidateQueries({ queryKey: ['activos-local'] });
+          void queryClient.invalidateQueries({ queryKey: ['pendientes-sync'] });
+        }
+      } catch {
+        // Sin red: seguimos con el espejo local ya descargado (si existe).
+      }
+    }
+    void bootstrap();
+  }, [queryClient]);
+
+  const { data: proyecto } = useQuery({ queryKey: ['proyecto-local'], queryFn: obtenerProyectoActivo });
+  const { data: resumen } = useQuery({ queryKey: ['resumen-local'], queryFn: calcularResumenLocal });
+  const { data: activos, isLoading: activosLoading } = useQuery({
+    queryKey: ['activos-local', q],
+    queryFn: () => listarActivosLocal(q),
   });
-
-  const { data: activos } = useQuery({
-    queryKey: ['activos', proyecto?.id, q],
-    queryFn: () => getActivos({ proyectoId: proyecto!.id, q, pageSize: 50 }),
-    enabled: !!proyecto,
+  const { data: pendientesSync = 0 } = useQuery({
+    queryKey: ['pendientes-sync'],
+    queryFn: async () => {
+      const { contarPendientesSync } = await import('../db/sync');
+      return contarPendientesSync();
+    },
   });
 
   const kpis = [
@@ -45,18 +101,18 @@ export function InicioScreen({ navigation }: Props) {
 
   const totalRevisados = resumen ? resumen.total - resumen.pendientes : 0;
 
-  const renderItem = ({ item }: { item: ActivoListItemOutput }) => (
-    <Pressable
-      style={styles.row}
-      onPress={() => navigation.navigate('Detalle', { activoId: item.id })}
-    >
-      <CategoriaIcon categoria={item.categoria} />
+  const renderItem = ({ item }: { item: ActivoLocalConEstado }) => (
+    <Pressable style={styles.row} onPress={() => navigation.navigate('Detalle', { activoId: item.id })}>
+      <CategoriaIcon categoria={item.categoria as CategoriaActivo} />
       <View style={{ flex: 1, marginLeft: spacing[3] }}>
         <Text style={styles.rowPlaca}>{item.placa}</Text>
         <Text style={styles.rowNombre}>{item.nombre}</Text>
-        <Text style={styles.rowUbicacion}>{item.ubicacion?.sede ?? 'Sin ubicación'}</Text>
+        <Text style={styles.rowUbicacion}>{item.ubicacionSede ?? 'Sin ubicación'}</Text>
       </View>
-      <EstadoBadge estado={item.estado} />
+      <View style={{ alignItems: 'flex-end', gap: 4 }}>
+        <EstadoBadge estado={item.estado} />
+        {item.sinSincronizar && <Text style={styles.sinSyncLabel}>Sin sincronizar</Text>}
+      </View>
       <ChevronRight size={18} color={colors.ink[400]} style={{ marginLeft: spacing[2] }} />
     </Pressable>
   );
@@ -89,6 +145,26 @@ export function InicioScreen({ navigation }: Props) {
         </View>
       </SafeAreaView>
 
+      <View style={styles.syncBar}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing[2] }}>
+          {!conectado && <CloudOff size={14} color={colors.ink[500]} />}
+          <Text style={styles.syncTexto}>
+            {!conectado ? 'Sin conexión · ' : ''}
+            {pendientesSync > 0 ? `${pendientesSync} cambios sin sincronizar` : 'Todo sincronizado'}
+          </Text>
+        </View>
+        {pendientesSync > 0 && conectado && (
+          <Pressable onPress={() => void ejecutarSincronizacion()} style={styles.syncButton} disabled={sincronizando}>
+            {sincronizando ? (
+              <ActivityIndicator size="small" color={colors.brand.blue} />
+            ) : (
+              <RefreshCw size={14} color={colors.brand.blue} />
+            )}
+            <Text style={styles.syncButtonLabel}>Sincronizar ahora</Text>
+          </Pressable>
+        )}
+      </View>
+
       <View style={styles.kpiRow}>
         {kpis.map((kpi) => (
           <View key={kpi.key} style={styles.kpiCard}>
@@ -110,18 +186,19 @@ export function InicioScreen({ navigation }: Props) {
       </View>
 
       <FlatList
-        data={activos?.data ?? []}
+        data={activos ?? []}
         keyExtractor={(item) => item.id}
         renderItem={renderItem}
         contentContainerStyle={{ paddingHorizontal: spacing[4], paddingBottom: 100 }}
-        ListEmptyComponent={<Text style={styles.empty}>No hay activos que coincidan con la búsqueda.</Text>}
+        ListEmptyComponent={
+          <Text style={styles.empty}>
+            {activosLoading ? 'Cargando…' : 'No hay activos que coincidan con la búsqueda.'}
+          </Text>
+        }
       />
 
       <SafeAreaView edges={['bottom']} style={styles.ctaWrap}>
-        <Pressable
-          onPress={() => navigation.navigate('Escaneo')}
-          style={styles.ctaButton}
-        >
+        <Pressable onPress={() => navigation.navigate('Escaneo')} style={styles.ctaButton}>
           <QrCode size={20} color="#fff" strokeWidth={1.8} />
           <Text style={styles.ctaLabel}>Escanear código QR</Text>
         </Pressable>
@@ -165,12 +242,22 @@ const styles = StyleSheet.create({
   avancePct: { color: '#fff', fontWeight: '700', fontSize: 16 },
   avanceLabel: { color: '#fff', fontWeight: '600', fontSize: 13, marginBottom: spacing[1] },
   avanceDetalle: { color: 'rgba(255,255,255,0.75)', fontSize: 12 },
+  syncBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing[4],
+    marginTop: -spacing[3],
+    marginBottom: spacing[2],
+  },
+  syncTexto: { fontSize: 12, color: colors.ink[500], fontWeight: '600' },
+  syncButton: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  syncButtonLabel: { fontSize: 12, fontWeight: '600', color: colors.brand.blue },
   kpiRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: spacing[2],
     paddingHorizontal: spacing[4],
-    marginTop: -spacing[4],
     marginBottom: spacing[3],
   },
   kpiCard: {
@@ -215,6 +302,7 @@ const styles = StyleSheet.create({
   rowPlaca: { fontFamily: 'monospace', color: colors.brand.blue, fontWeight: '600', fontSize: 13 },
   rowNombre: { fontSize: 14, fontWeight: '600', color: colors.brand.black, marginTop: 1 },
   rowUbicacion: { fontSize: 12, color: colors.ink[500], marginTop: 1 },
+  sinSyncLabel: { fontSize: 10, fontWeight: '600', color: colors.state.warning },
   empty: { textAlign: 'center', color: colors.ink[500], marginTop: spacing[6] },
   ctaWrap: {
     position: 'absolute',

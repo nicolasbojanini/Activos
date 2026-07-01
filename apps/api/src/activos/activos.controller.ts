@@ -52,4 +52,12 @@ export class ActivosController {
   findOne(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
     return this.activosService.findOne(user.organizacionId, id);
   }
+
+  @Get(':id/registros')
+  @ApiOperation({
+    summary: 'Línea de tiempo de registros de auditoría + galería de fotos',
+  })
+  historial(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+    return this.activosService.historial(user.organizacionId, id);
+  }
 }

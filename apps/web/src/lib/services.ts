@@ -1,4 +1,5 @@
 import type {
+  ActivoDetailOutput,
   AuthTokensOutput,
   ImportCommitInput,
   ImportCommitOutput,
@@ -6,6 +7,7 @@ import type {
   PaginatedOutput,
   ActivoListItemOutput,
   ProyectoOutput,
+  RegistroHistorialOutput,
   ResumenProyectoOutput,
   UsuarioOutput,
 } from '@adn/shared';
@@ -46,6 +48,14 @@ export function getActivos(filters: ActivosFilters) {
     if (value !== undefined && value !== '') params.set(key, String(value));
   });
   return apiFetch<PaginatedOutput<ActivoListItemOutput>>(`/activos?${params.toString()}`);
+}
+
+export function getActivo(id: string) {
+  return apiFetch<ActivoDetailOutput>(`/activos/${id}`);
+}
+
+export function getHistorialActivo(id: string) {
+  return apiFetch<RegistroHistorialOutput[]>(`/activos/${id}/registros`);
 }
 
 export function previewImport(file: File) {

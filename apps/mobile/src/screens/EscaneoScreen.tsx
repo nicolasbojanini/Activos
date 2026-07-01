@@ -3,8 +3,10 @@ import { Animated, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'r
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { X, Keyboard } from 'lucide-react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import NetInfo from '@react-native-community/netinfo';
 import { colors, radius, spacing } from '@adn/ui-tokens';
 import { buscarActivoPorQR } from '../lib/services';
+import { buscarActivoLocalPorQR } from '../db/sync';
 import { ApiError } from '../lib/api';
 import { PrimaryButton } from '../components/PrimaryButton';
 import type { RootStackParamList } from '../navigation/types';
@@ -40,6 +42,21 @@ export function EscaneoScreen({ navigation }: Props) {
 
   const resolverCodigo = async (codigoQR: string) => {
     setError(null);
+
+    // Offline-first: primero se busca en el espejo local descargado al iniciar sesión.
+    const local = await buscarActivoLocalPorQR(codigoQR);
+    if (local) {
+      navigation.replace('Detalle', { activoId: local.id, escaneado: true });
+      return;
+    }
+
+    const estadoRed = await NetInfo.fetch();
+    if (!estadoRed.isConnected) {
+      // Sin red y sin match local: se ofrece el flujo de "no registrado" (se confirmará contra el servidor al sincronizar).
+      navigation.replace('NoRegistrado', { codigoQR });
+      return;
+    }
+
     try {
       const activo = await buscarActivoPorQR(codigoQR);
       navigation.replace('Detalle', { activoId: activo.id, escaneado: true });

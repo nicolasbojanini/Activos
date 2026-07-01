@@ -7,13 +7,15 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import * as Crypto from 'expo-crypto';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { CategoriaActivo, type UbicacionOutput } from '@adn/shared';
+import { CategoriaActivo } from '@adn/shared';
 import { colors, radius, spacing } from '@adn/ui-tokens';
-import { apiFetch } from '../lib/api';
-import { crearRegistro } from '../lib/services';
+import { listarUbicacionesLocal } from '../db/sync';
+import { encolarRegistro } from '../lib/registro-offline';
+import { capturarFoto, eliminarFotoLocal, type FotoCapturada } from '../lib/fotos';
 import { useProyectoActual } from '../lib/useProyectoActual';
 import { HeaderBar } from '../components/HeaderBar';
 import { PrimaryButton } from '../components/PrimaryButton';
+import { FotosGrid } from '../components/FotosGrid';
 import type { RootStackParamList } from '../navigation/types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'NoRegistrado'>;
@@ -40,12 +42,21 @@ export function NoRegistradoScreen({ route, navigation }: Props) {
   const { codigoQR } = route.params;
   const { proyecto } = useProyectoActual();
   const [enviando, setEnviando] = useState(false);
+  const [fotos, setFotos] = useState<FotoCapturada[]>([]);
   const queryClient = useQueryClient();
 
-  const { data: ubicaciones } = useQuery({
-    queryKey: ['ubicaciones'],
-    queryFn: () => apiFetch<UbicacionOutput[]>('/ubicaciones'),
-  });
+  const handleCapturarFoto = async (etiqueta: string, orden: number) => {
+    const foto = await capturarFoto(etiqueta, orden);
+    if (foto) setFotos((prev) => [...prev.filter((f) => f.orden !== orden), foto]);
+  };
+
+  const handleQuitarFoto = (orden: number) => {
+    const foto = fotos.find((f) => f.orden === orden);
+    if (foto) eliminarFotoLocal(foto.clientPhotoId);
+    setFotos((prev) => prev.filter((f) => f.orden !== orden));
+  };
+
+  const { data: ubicaciones } = useQuery({ queryKey: ['ubicaciones-local'], queryFn: listarUbicacionesLocal });
 
   const {
     control,
@@ -60,7 +71,7 @@ export function NoRegistradoScreen({ route, navigation }: Props) {
     if (!proyecto) return;
     setEnviando(true);
     try {
-      await crearRegistro({
+      await encolarRegistro({
         clientId: Crypto.randomUUID(),
         proyectoId: proyecto.id,
         activoId: null,
@@ -73,10 +84,19 @@ export function NoRegistradoScreen({ route, navigation }: Props) {
         },
         nota: values.nota || null,
         auditadoEn: new Date(),
-        fotos: [],
+        fotos: fotos.map(({ clientPhotoId, etiqueta, orden, ancho, alto }) => ({
+          clientPhotoId,
+          etiqueta,
+          orden,
+          ancho,
+          alto,
+        })),
+        placaSnapshot: codigoQR,
+        nombreSnapshot: values.nombre,
       });
-      await queryClient.invalidateQueries({ queryKey: ['resumen'] });
-      await queryClient.invalidateQueries({ queryKey: ['activos'] });
+      void queryClient.invalidateQueries({ queryKey: ['resumen-local'] });
+      void queryClient.invalidateQueries({ queryKey: ['activos-local'] });
+      void queryClient.invalidateQueries({ queryKey: ['pendientes-sync'] });
       navigation.replace('Confirmacion', {
         resultado: 'NO_REGISTRADO',
         titulo: 'Activo nuevo registrado',
@@ -163,6 +183,8 @@ export function NoRegistradoScreen({ route, navigation }: Props) {
             />
           )}
         />
+
+        <FotosGrid fotos={fotos} onCapturar={handleCapturarFoto} onQuitar={handleQuitarFoto} />
       </ScrollView>
 
       <SafeAreaView edges={['bottom']} style={styles.acciones}>

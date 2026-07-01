@@ -53,3 +53,21 @@ export interface PaginatedOutput<T> {
   page: number;
   pageSize: number;
 }
+
+export interface FotoOutput {
+  id: string;
+  url: string;
+  etiqueta: string | null;
+  orden: number;
+}
+
+export interface RegistroHistorialOutput {
+  id: string;
+  estado: EstadoAuditoria;
+  estadoFisico: EstadoFisico | null;
+  cambios: Record<string, { antes: unknown; despues: unknown }> | null;
+  nota: string | null;
+  auditadoEn: string;
+  auditor: string;
+  fotos: FotoOutput[];
+}

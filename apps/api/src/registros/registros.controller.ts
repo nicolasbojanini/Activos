@@ -1,10 +1,14 @@
-import { Body, Controller, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Param, Post, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RegistrosService } from './registros.service';
 import {
   registroAuditoriaInputSchema,
   type CrearRegistroDto,
 } from './dto/crear-registro.dto';
+import {
+  confirmarFotosSchema,
+  type ConfirmarFotosDto,
+} from './dto/confirmar-fotos.dto';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import type { AuthenticatedUser } from '../auth/types/authenticated-user';
@@ -28,5 +32,18 @@ export class RegistrosController {
     dto: CrearRegistroDto,
   ) {
     return this.registrosService.crear(user.organizacionId, user.id, dto);
+  }
+
+  @Post(':id/fotos/confirmar')
+  @ApiOperation({
+    summary:
+      'Confirmar que las fotos ya se subieron a S3 y completar sus metadatos',
+  })
+  confirmarFotos(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(confirmarFotosSchema)) dto: ConfirmarFotosDto,
+  ) {
+    return this.registrosService.confirmarFotos(user.organizacionId, id, dto);
   }
 }

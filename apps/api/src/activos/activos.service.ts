@@ -5,15 +5,18 @@ import type {
   ActivoListItemOutput,
   ListActivosQuery,
   PaginatedOutput,
+  RegistroHistorialOutput,
 } from '@adn/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { ProyectosService } from '../proyectos/proyectos.service';
+import { S3Service } from '../files/s3.service';
 
 @Injectable()
 export class ActivosService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly proyectosService: ProyectosService,
+    private readonly s3: S3Service,
   ) {}
 
   async findAll(
@@ -152,5 +155,43 @@ export class ActivosService {
       estado: ultimoRegistro?.estado ?? 'PENDIENTE',
       ultimoAuditor: ultimoRegistro?.auditor.nombre ?? null,
     };
+  }
+
+  /** Línea de tiempo de auditoría del activo (quién/cuándo/qué cambió) + galería de fotos. */
+  async historial(
+    organizacionId: string,
+    activoId: string,
+  ): Promise<RegistroHistorialOutput[]> {
+    const activo = await this.prisma.activo.findFirst({
+      where: { id: activoId, organizacionId },
+    });
+    if (!activo) {
+      throw new NotFoundException('Activo no encontrado');
+    }
+
+    const registros = await this.prisma.registroAuditoria.findMany({
+      where: { activoId },
+      orderBy: { auditadoEn: 'desc' },
+      include: {
+        auditor: { select: { nombre: true } },
+        fotos: { orderBy: { orden: 'asc' } },
+      },
+    });
+
+    return registros.map((registro) => ({
+      id: registro.id,
+      estado: registro.estado,
+      estadoFisico: registro.estadoFisico,
+      cambios: registro.cambios as RegistroHistorialOutput['cambios'],
+      nota: registro.nota,
+      auditadoEn: registro.auditadoEn.toISOString(),
+      auditor: registro.auditor.nombre,
+      fotos: registro.fotos.map((foto) => ({
+        id: foto.id,
+        url: this.s3.urlPublica(foto.s3Key),
+        etiqueta: foto.etiqueta,
+        orden: foto.orden,
+      })),
+    }));
   }
 }

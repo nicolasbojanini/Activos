@@ -4,16 +4,32 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
-import type { RegistroAuditoriaInput } from '@adn/shared';
+import type { ConfirmarFotosInput, RegistroAuditoriaInput } from '@adn/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { ProyectosService } from '../proyectos/proyectos.service';
+import { S3Service } from '../files/s3.service';
+
+export interface UploadEntry {
+  clientPhotoId: string;
+  uploadUrl: string;
+  s3Key: string;
+}
 
 @Injectable()
 export class RegistrosService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly proyectosService: ProyectosService,
+    private readonly s3: S3Service,
   ) {}
+
+  private construirS3Key(registroId: string, clientPhotoId: string): string {
+    return `fotos/${registroId}/${clientPhotoId}.jpg`;
+  }
+
+  private extraerClientPhotoId(s3Key: string): string {
+    return s3Key.split('/').pop()!.replace('.jpg', '');
+  }
 
   /**
    * Idempotente por clientId: un reintento de sincronización con el mismo
@@ -29,7 +45,18 @@ export class RegistrosService {
       include: { fotos: true },
     });
     if (existente) {
-      return { registro: existente, uploads: [] as never[] };
+      // Reintento idempotente: regenera URLs de subida solo para las fotos que aún no se confirmaron.
+      const fotosPendientes = existente.fotos.filter(
+        (foto) => foto.bytes === null,
+      );
+      const uploads: UploadEntry[] = await Promise.all(
+        fotosPendientes.map(async (foto) => ({
+          clientPhotoId: this.extraerClientPhotoId(foto.s3Key),
+          s3Key: foto.s3Key,
+          uploadUrl: await this.s3.generarUrlSubida(foto.s3Key),
+        })),
+      );
+      return { registro: existente, uploads };
     }
 
     const proyecto = await this.proyectosService.findOne(
@@ -52,6 +79,11 @@ export class RegistrosService {
       throw new NotFoundException('Activo no encontrado');
     }
 
+    const fotosConKey = dto.fotos.map((foto) => ({
+      ...foto,
+      s3Key: this.construirS3Key(dto.clientId, foto.clientPhotoId),
+    }));
+
     const registro = await this.prisma.$transaction(async (tx) => {
       const creado = await tx.registroAuditoria.create({
         data: {
@@ -69,17 +101,63 @@ export class RegistrosService {
           auditadoEn: dto.auditadoEn,
           clientId: dto.clientId,
         },
-        include: { fotos: true },
       });
 
       if (activo) {
         await this.aplicarCambiosAActivo(tx, activo.id, dto);
       }
 
-      return creado;
+      if (fotosConKey.length > 0) {
+        await tx.foto.createMany({
+          data: fotosConKey.map((foto) => ({
+            registroId: creado.id,
+            s3Key: foto.s3Key,
+            etiqueta: foto.etiqueta,
+            orden: foto.orden,
+          })),
+        });
+      }
+
+      return tx.registroAuditoria.findUniqueOrThrow({
+        where: { id: creado.id },
+        include: { fotos: true },
+      });
     });
 
-    return { registro, uploads: [] as never[] };
+    const uploads: UploadEntry[] = await Promise.all(
+      fotosConKey.map(async (foto) => ({
+        clientPhotoId: foto.clientPhotoId,
+        s3Key: foto.s3Key,
+        uploadUrl: await this.s3.generarUrlSubida(foto.s3Key),
+      })),
+    );
+
+    return { registro, uploads };
+  }
+
+  /** Confirma que las fotos ya se subieron a S3 y completa sus metadatos (ancho/alto/bytes). */
+  async confirmarFotos(
+    organizacionId: string,
+    registroId: string,
+    dto: ConfirmarFotosInput,
+  ) {
+    const registro = await this.prisma.registroAuditoria.findFirst({
+      where: { id: registroId, proyecto: { organizacionId } },
+    });
+    if (!registro) {
+      throw new NotFoundException('Registro no encontrado');
+    }
+
+    await Promise.all(
+      dto.fotos.map((foto) =>
+        this.prisma.foto.updateMany({
+          where: { registroId, s3Key: foto.s3Key },
+          data: { ancho: foto.ancho, alto: foto.alto, bytes: foto.bytes },
+        }),
+      ),
+    );
+
+    return this.prisma.foto.findMany({ where: { registroId } });
   }
 
   /**
