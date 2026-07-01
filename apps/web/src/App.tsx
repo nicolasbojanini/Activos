@@ -4,6 +4,7 @@ import { Login } from './pages/Login';
 import { Auditorias } from './pages/Auditorias';
 import { Importar } from './pages/Importar';
 import { ActivoDetalle } from './pages/ActivoDetalle';
+import { Reportes } from './pages/Reportes';
 
 function App() {
   return (
@@ -13,6 +14,7 @@ function App() {
         <Route path="/auditorias" element={<Auditorias />} />
         <Route path="/auditorias/:proyectoId/importar" element={<Importar />} />
         <Route path="/activos/:id" element={<ActivoDetalle />} />
+        <Route path="/reportes" element={<Reportes />} />
       </Route>
       <Route path="*" element={<Navigate to="/auditorias" replace />} />
     </Routes>

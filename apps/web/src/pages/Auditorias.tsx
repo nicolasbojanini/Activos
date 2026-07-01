@@ -85,12 +85,30 @@ export function Auditorias() {
 
   return (
     <Layout>
-      <header style={{ marginBottom: 24 }}>
-        <p className="eyebrow">AU/</p>
-        <h1 style={{ fontSize: 24 }}>{proyecto.nombre}</h1>
-        <p style={{ color: 'var(--adn-ink-500)', fontSize: 13, margin: '4px 0 0' }}>
-          Fecha de corte: {new Date(proyecto.fechaCorte).toLocaleDateString('es-CO', { dateStyle: 'long' })}
-        </p>
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
+        <div>
+          <p className="eyebrow">AU/</p>
+          <h1 style={{ fontSize: 24 }}>{proyecto.nombre}</h1>
+          <p style={{ color: 'var(--adn-ink-500)', fontSize: 13, margin: '4px 0 0' }}>
+            Fecha de corte: {new Date(proyecto.fechaCorte).toLocaleDateString('es-CO', { dateStyle: 'long' })}
+          </p>
+        </div>
+        <button
+          onClick={() => navigate('/reportes')}
+          style={{
+            background: 'var(--adn-blue)',
+            color: '#fff',
+            border: 'none',
+            borderRadius: 'var(--adn-radius-md)',
+            padding: '10px 20px',
+            fontSize: 13,
+            fontWeight: 600,
+            cursor: 'pointer',
+            boxShadow: 'var(--shadow-brand)',
+          }}
+        >
+          Descargar reporte
+        </button>
       </header>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 24 }}>

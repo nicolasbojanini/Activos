@@ -7,7 +7,7 @@ import logoAdnWhite from '../assets/logo-adn-white.png';
 const navItems = [
   { to: '/auditorias', label: 'Auditorías', icon: ClipboardList, enabled: true },
   { to: '/activos', label: 'Activos', icon: Package, enabled: false },
-  { to: '/reportes', label: 'Reportes', icon: FileBarChart, enabled: false },
+  { to: '/reportes', label: 'Reportes', icon: FileBarChart, enabled: true },
   { to: '/auditores', label: 'Auditores', icon: Users, enabled: false },
 ];
 

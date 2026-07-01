@@ -83,3 +83,29 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}, re
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
 }
+
+/** Descarga un archivo (reporte, etc.) y dispara la descarga del navegador con el nombre real del servidor. */
+export async function descargarArchivo(path: string): Promise<void> {
+  const { accessToken } = useAuthStore.getState();
+  const response = await fetch(`${API_URL}${path}`, {
+    headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+  });
+
+  if (!response.ok) {
+    throw new ApiError(response.status, await parseError(response));
+  }
+
+  const disposition = response.headers.get('content-disposition') ?? '';
+  const match = /filename="([^"]+)"/.exec(disposition);
+  const filename = match?.[1] ?? 'descarga';
+
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const enlace = document.createElement('a');
+  enlace.href = url;
+  enlace.download = filename;
+  document.body.appendChild(enlace);
+  enlace.click();
+  enlace.remove();
+  URL.revokeObjectURL(url);
+}

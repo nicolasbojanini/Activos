@@ -8,6 +8,7 @@ import { ImportsModule } from './imports/imports.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { ProyectosModule } from './proyectos/proyectos.module';
 import { RegistrosModule } from './registros/registros.module';
+import { ReportesModule } from './reportes/reportes.module';
 import { UbicacionesModule } from './ubicaciones/ubicaciones.module';
 
 @Module({
@@ -20,6 +21,7 @@ import { UbicacionesModule } from './ubicaciones/ubicaciones.module';
     ImportsModule,
     RegistrosModule,
     UbicacionesModule,
+    ReportesModule,
   ],
   controllers: [AppController],
   providers: [AppService],
