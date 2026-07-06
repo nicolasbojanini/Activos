@@ -38,16 +38,21 @@ jobs:
           SENTRY_DISABLE_AUTO_UPLOAD: 'true'
         run: npx expo prebuild --platform android --non-interactive
 
-      - name: Compilar APK debug (autofirmado, instalable directo)
+      - name: Compilar APK release (JS empaquetado adentro, sin depender de Metro)
         working-directory: apps/mobile/android
         env:
           EXPO_PUBLIC_API_URL: https://api-production-1d41b.up.railway.app/api/v1
           SENTRY_DISABLE_AUTO_UPLOAD: 'true'
-        run: ./gradlew assembleDebug --no-daemon
+        # La variante "debug" carga el JS desde un Metro corriendo en la
+        # máquina del desarrollador (localhost:8081) — inútil para un APK que
+        # alguien más va a instalar. La plantilla de Android de Expo firma
+        # "release" con el mismo keystore de debug por defecto, así que esto
+        # no necesita ningún keystore ni secreto adicional.
+        run: ./gradlew assembleRelease --no-daemon
 
       - name: Subir APK como artefacto descargable
         uses: actions/upload-artifact@v4
         with:
-          name: adn-auditoria-debug
-          path: apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk
+          name: adn-auditoria-release
+          path: apps/mobile/android/app/build/outputs/apk/release/app-release.apk
           retention-days: 14
