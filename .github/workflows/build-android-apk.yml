@@ -1,0 +1,55 @@
+name: Build Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/mobile/**'
+      - 'packages/shared/**'
+      - 'packages/ui-tokens/**'
+      - '.github/workflows/build-android-apk.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Instalar dependencias del monorepo
+        run: pnpm install --frozen-lockfile
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Expo prebuild (genera el proyecto nativo android/)
+        working-directory: apps/mobile
+        env:
+          EXPO_PUBLIC_API_URL: https://api-production-1d41b.up.railway.app/api/v1
+          SENTRY_DISABLE_AUTO_UPLOAD: 'true'
+        run: npx expo prebuild --platform android --non-interactive
+
+      - name: Compilar APK debug (autofirmado, instalable directo)
+        working-directory: apps/mobile/android
+        env:
+          EXPO_PUBLIC_API_URL: https://api-production-1d41b.up.railway.app/api/v1
+          SENTRY_DISABLE_AUTO_UPLOAD: 'true'
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Subir APK como artefacto descargable
+        uses: actions/upload-artifact@v4
+        with:
+          name: adn-auditoria-debug
+          path: apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 14
