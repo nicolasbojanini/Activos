@@ -38,6 +38,7 @@ export class ConfiguracionCamposController {
   constructor(private readonly service: ConfiguracionCamposService) {}
 
   @Get('configuracion-campos')
+  @Roles(Rol.ADN_ADMIN, Rol.COORDINADOR, Rol.AUDITOR)
   @ApiOperation({
     summary: 'Catálogo de campos + configuración actual del cliente',
   })
