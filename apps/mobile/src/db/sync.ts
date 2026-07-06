@@ -58,42 +58,52 @@ export async function descargarSesion(proyecto: ProyectoOutput) {
   const configuracionCampos = await getConfiguracionCampos();
   const fichasCompletas = await getSesionActivos(proyectoId);
 
-  await db.delete(activosLocal);
-  await db.delete(ubicacionesLocal);
+  // El driver expo-sqlite de drizzle es síncrono: cada `db.insert(...)` fuera
+  // de una transacción hace su propio commit/fsync. Con miles de activos,
+  // 7.398 inserts sueltos (uno por fila) son minutos de espera aunque la
+  // descarga por red ya sea rápida — el cuello de botella pasa a ser
+  // SQLite, no la API. Envolver todo en una sola transacción reduce esos
+  // miles de fsync a uno solo.
+  db.transaction((tx) => {
+    tx.delete(activosLocal).run();
+    tx.delete(ubicacionesLocal).run();
 
-  for (const u of ubicaciones) {
-    await db.insert(ubicacionesLocal).values({ id: u.id, codigo: u.codigo, sede: u.sede, detalle: u.detalle });
-  }
+    for (const u of ubicaciones) {
+      tx.insert(ubicacionesLocal).values({ id: u.id, codigo: u.codigo, sede: u.sede, detalle: u.detalle }).run();
+    }
 
-  for (const activo of fichasCompletas) {
-    await db.insert(activosLocal).values({
-      id: activo.id,
-      codigoNuevo: activo.codigoNuevo,
-      codigoAnterior: activo.codigoAnterior,
-      codigoControl: activo.codigoControl,
-      nombre: activo.nombre,
-      descripcion: activo.descripcion,
-      categoria: activo.categoria,
-      color: activo.color,
-      medidas: activo.medidas,
-      capacidad: activo.capacidad,
-      marca: activo.marca,
-      modelo: activo.modelo,
-      serie: activo.serie,
-      ubicacionId: activo.ubicacion?.id ?? null,
-      ubicacionSede: activo.ubicacion?.sede ?? null,
-      responsable: activo.responsable,
-      centroCosto: activo.centroCosto,
-      estadoFisico: activo.estadoFisico,
-      fechaAdquisicion: activo.fechaAdquisicion,
-      valorLibros: activo.valorLibros,
-      proveedor: activo.proveedor,
-      vidaUtilMeses: activo.vidaUtilMeses,
-      camposPersonalizadosJson: activo.camposPersonalizados ? JSON.stringify(activo.camposPersonalizados) : null,
-      estadoServidor: activo.estado,
-      ultimoAuditorServidor: activo.ultimoAuditor,
-    });
-  }
+    for (const activo of fichasCompletas) {
+      tx.insert(activosLocal)
+        .values({
+          id: activo.id,
+          codigoNuevo: activo.codigoNuevo,
+          codigoAnterior: activo.codigoAnterior,
+          codigoControl: activo.codigoControl,
+          nombre: activo.nombre,
+          descripcion: activo.descripcion,
+          categoria: activo.categoria,
+          color: activo.color,
+          medidas: activo.medidas,
+          capacidad: activo.capacidad,
+          marca: activo.marca,
+          modelo: activo.modelo,
+          serie: activo.serie,
+          ubicacionId: activo.ubicacion?.id ?? null,
+          ubicacionSede: activo.ubicacion?.sede ?? null,
+          responsable: activo.responsable,
+          centroCosto: activo.centroCosto,
+          estadoFisico: activo.estadoFisico,
+          fechaAdquisicion: activo.fechaAdquisicion,
+          valorLibros: activo.valorLibros,
+          proveedor: activo.proveedor,
+          vidaUtilMeses: activo.vidaUtilMeses,
+          camposPersonalizadosJson: activo.camposPersonalizados ? JSON.stringify(activo.camposPersonalizados) : null,
+          estadoServidor: activo.estado,
+          ultimoAuditorServidor: activo.ultimoAuditor,
+        })
+        .run();
+    }
+  });
 
   await guardarProyectoActivo(proyecto);
   await guardarConfiguracionCampos(configuracionCampos);
