@@ -42,6 +42,19 @@ export async function obtenerConfiguracionCampos(): Promise<ConfiguracionCamposL
 }
 
 /**
+ * Refresca solo la configuración de campos (visible/obligatorio, estándar y
+ * personalizados) sin tocar el espejo de activos/ubicaciones. Se llama en
+ * cada apertura de la sesión, no solo en la primera descarga completa — si
+ * el admin cambia qué campos son obligatorios/visibles a mitad de una
+ * auditoría, el auditor lo ve reflejado la próxima vez que abre la app, en
+ * vez de tener que borrar los datos y volver a descargar todo.
+ */
+export async function refrescarConfiguracionCampos() {
+  const configuracionCampos = await getConfiguracionCampos();
+  await guardarConfiguracionCampos(configuracionCampos);
+}
+
+/**
  * Descarga el espejo local (activos + ubicaciones) del proyecto para poder
  * operar en bodega sin señal. Requiere red; se llama al abrir la sesión.
  *

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Animated, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, Animated, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { X, Keyboard } from 'lucide-react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -17,6 +17,8 @@ const VISOR_SIZE = 240;
 
 export function EscaneoScreen({ route, navigation }: Props) {
   const modo = route.params?.modo ?? 'activo';
+  const ubicacionActiva = useUbicacionActivaStore((s) => s.ubicacionActiva);
+  const requiereUbicacion = modo === 'activo' && !ubicacionActiva;
   const [permission, requestPermission] = useCameraPermissions();
   const [locked, setLocked] = useState(false);
   const [manualVisible, setManualVisible] = useState(false);
@@ -29,6 +31,17 @@ export function EscaneoScreen({ route, navigation }: Props) {
       void requestPermission();
     }
   }, [permission, requestPermission]);
+
+  // No se audita un activo sin saber en qué ubicación está — obliga a escanear
+  // la ubicación primero en vez de dejar crear/actualizar activos "sueltos".
+  useEffect(() => {
+    if (!requiereUbicacion) return;
+    Alert.alert(
+      'Escanea primero la ubicación',
+      'Antes de escanear un activo, escanea el código QR de la ubicación donde te encuentras.',
+      [{ text: 'Entendido', onPress: () => navigation.replace('Escaneo', { modo: 'ubicacion' }) }],
+    );
+  }, [requiereUbicacion, navigation]);
 
   useEffect(() => {
     const loop = Animated.loop(
@@ -96,7 +109,7 @@ export function EscaneoScreen({ route, navigation }: Props) {
     modo === 'ubicacion' ? resolverCodigoUbicacion(codigo) : resolverCodigoActivo(codigo);
 
   const handleScanned = ({ data }: { data: string }) => {
-    if (locked) return;
+    if (locked || requiereUbicacion) return;
     setLocked(true);
     void resolverCodigo(data);
   };
@@ -110,7 +123,7 @@ export function EscaneoScreen({ route, navigation }: Props) {
           style={StyleSheet.absoluteFill}
           facing="back"
           barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
-          onBarcodeScanned={locked ? undefined : handleScanned}
+          onBarcodeScanned={locked || requiereUbicacion ? undefined : handleScanned}
         />
       ) : (
         <View style={styles.permisoDenegado}>

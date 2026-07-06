@@ -163,7 +163,7 @@ export function Auditorias() {
           <p className="eyebrow">AU/</p>
           <h1 style={{ fontSize: 24 }}>{proyecto.nombre}</h1>
           <p style={{ color: 'var(--adn-ink-500)', fontSize: 13, margin: '4px 0 0' }}>
-            Fecha de corte: {new Date(proyecto.fechaCorte).toLocaleDateString('es-CO', { dateStyle: 'long' })}
+            Fecha de corte: {new Date(proyecto.fechaCorte).toLocaleDateString('es-CO', { dateStyle: 'long', timeZone: 'America/Bogota' })}
           </p>
         </div>
         <button

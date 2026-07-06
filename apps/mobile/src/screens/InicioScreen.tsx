@@ -20,6 +20,7 @@ import {
   haySesionDescargada,
   listarActivosLocal,
   obtenerProyectoActivo,
+  refrescarConfiguracionCampos,
   type ActivoLocalConEstado,
 } from '../db/sync';
 import { sincronizarPendientes } from '../lib/registro-offline';
@@ -79,6 +80,7 @@ export function InicioScreen({ navigation }: Props) {
           await descargarSesion(proyecto);
         } else {
           await guardarProyectoActivo(proyecto);
+          await refrescarConfiguracionCampos();
         }
         void queryClient.invalidateQueries({ queryKey: ['proyecto-local'] });
         void queryClient.invalidateQueries({ queryKey: ['resumen-local'] });
@@ -265,6 +267,7 @@ export function InicioScreen({ navigation }: Props) {
       </View>
 
       <FlatList
+        style={{ flex: 1 }}
         data={activos ?? []}
         keyExtractor={(item) => item.id}
         renderItem={renderItem}

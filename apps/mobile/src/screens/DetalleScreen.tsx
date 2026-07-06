@@ -43,7 +43,7 @@ const CAMPO_VALOR: Record<string, (activo: ActivoLocal) => string> = {
   responsable: (a) => a.responsable ?? '—',
   centroCosto: (a) => a.centroCosto ?? '—',
   categoria: (a) => a.categoria.replace('_', ' '),
-  fechaAdquisicion: (a) => (a.fechaAdquisicion ? new Date(a.fechaAdquisicion).toLocaleDateString('es-CO') : '—'),
+  fechaAdquisicion: (a) => (a.fechaAdquisicion ? new Date(a.fechaAdquisicion).toLocaleDateString('es-CO', { timeZone: 'America/Bogota' }) : '—'),
   valorLibros: (a) => (a.valorLibros ? `$${Number(a.valorLibros).toLocaleString('es-CO')}` : '—'),
   proveedor: (a) => a.proveedor ?? '—',
   vidaUtilMeses: (a) => (a.vidaUtilMeses ? `${a.vidaUtilMeses} meses` : '—'),

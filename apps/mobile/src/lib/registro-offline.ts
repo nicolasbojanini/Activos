@@ -14,13 +14,15 @@ interface EncolarInput extends Omit<RegistroAuditoriaInput, 'fotos'> {
 }
 
 /**
- * Guarda la mutación localmente primero (optimista) e intenta sincronizar de
- * inmediato si hay red. Si falla o está offline, queda en la cola para el
- * siguiente `sincronizarPendientes()`. Nunca lanza: el auditor sigue trabajando
- * sin importar el estado de la red. Las fotos ya capturadas quedan en el
- * dispositivo (expo-file-system) y se suben junto con el registro al sincronizar.
+ * Guarda la mutación localmente primero (optimista) y dispara la
+ * sincronización en segundo plano, sin esperarla — subir varias fotos por
+ * una red de celular puede tardar bastante, y bloquear al auditor con un
+ * spinner hasta que eso termine es exactamente lo que este diseño
+ * "local-first" busca evitar. Si la sincronización falla o está offline,
+ * queda en la cola para el siguiente `sincronizarPendientes()`. Nunca lanza:
+ * el auditor sigue trabajando sin importar el estado de la red.
  */
-export async function encolarRegistro(input: EncolarInput): Promise<{ sincronizadoAlInstante: boolean }> {
+export async function encolarRegistro(input: EncolarInput): Promise<void> {
   await db.insert(colaRegistros).values({
     clientId: input.clientId,
     proyectoId: input.proyectoId,
@@ -37,8 +39,7 @@ export async function encolarRegistro(input: EncolarInput): Promise<{ sincroniza
     createdAt: new Date().toISOString(),
   });
 
-  const exito = await intentarSincronizar(input.clientId, input);
-  return { sincronizadoAlInstante: exito };
+  void intentarSincronizar(input.clientId, input);
 }
 
 function aRegistroAuditoriaInput(input: EncolarInput): RegistroAuditoriaInput {
@@ -56,29 +57,35 @@ async function subirYConfirmarFotos(
 ): Promise<boolean> {
   if (uploads.length === 0) return true;
 
-  const confirmaciones: { clientPhotoId: string; s3Key: string; ancho: number; alto: number; bytes: number }[] = [];
+  // Subir en paralelo, no una por una — con 4 fotos por activo, subirlas
+  // secuencialmente en una red de celular es lo que hacía que confirmar un
+  // activo se sintiera lento (~1 minuto).
+  const resultados = await Promise.all(
+    uploads.map(async (upload) => {
+      const archivo = archivoLocalFoto(upload.clientPhotoId);
+      if (!archivo.exists) return null; // ya se subió antes o no aplica
 
-  for (const upload of uploads) {
-    const archivo = archivoLocalFoto(upload.clientPhotoId);
-    if (!archivo.exists) continue; // ya se subió antes o no aplica
+      const metadata = fotosLocal.find((f) => f.clientPhotoId === upload.clientPhotoId);
+      const bytes = await archivo.bytes();
+      const respuesta = await fetch(upload.uploadUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'image/jpeg' },
+        body: bytes,
+      });
+      if (!respuesta.ok) return undefined;
 
-    const metadata = fotosLocal.find((f) => f.clientPhotoId === upload.clientPhotoId);
-    const bytes = await archivo.bytes();
-    const respuesta = await fetch(upload.uploadUrl, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'image/jpeg' },
-      body: bytes,
-    });
-    if (!respuesta.ok) return false;
+      return {
+        clientPhotoId: upload.clientPhotoId,
+        s3Key: upload.s3Key,
+        ancho: metadata?.ancho ?? 0,
+        alto: metadata?.alto ?? 0,
+        bytes: archivo.size,
+      };
+    }),
+  );
 
-    confirmaciones.push({
-      clientPhotoId: upload.clientPhotoId,
-      s3Key: upload.s3Key,
-      ancho: metadata?.ancho ?? 0,
-      alto: metadata?.alto ?? 0,
-      bytes: archivo.size,
-    });
-  }
+  if (resultados.some((r) => r === undefined)) return false;
+  const confirmaciones = resultados.filter((r): r is NonNullable<typeof r> => r !== null);
 
   if (confirmaciones.length === 0) return true;
 

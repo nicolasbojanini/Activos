@@ -90,11 +90,6 @@ export class ImportsService {
       dto.proyectoId,
     );
 
-    const mapaCampos =
-      await this.configuracionCampos.obtenerMapaCampos(clienteId);
-    const camposRequeridos = [...mapaCampos.values()].filter(
-      (c) => c.visible && c.requerido,
-    );
     const camposPersonalizados = (
       await this.configuracionCampos.obtenerCamposPersonalizados(clienteId)
     ).filter((cp) => cp.visible);
@@ -229,29 +224,14 @@ export class ImportsService {
         continue;
       }
 
-      const datosParaFila = parsed.data as Record<string, unknown>;
-      const campoFaltante = camposRequeridos.find((c) => {
-        if (c.campo === 'ubicacion') {
-          const valor = valorPor('ubicacion') as string | undefined;
-          return valor == null || valor.trim() === '';
-        }
-        const valor = datosParaFila[c.campo];
-        return valor === undefined || valor === null || valor === '';
-      });
-      if (campoFaltante) {
-        errores.push({
-          fila: numeroFila,
-          campo: campoFaltante.campo,
-          motivo: `El campo "${campoFaltante.etiqueta}" es obligatorio para este cliente`,
-        });
-        continue;
-      }
-
-      // Igual que los campos del catálogo estándar: se lee por su clave de
-      // mapeo propia (`personalizado:<id>`) y se re-escribe entero en cada
-      // importación — un campo personalizado sin columna mapeada en este
-      // archivo queda vacío, el mismo comportamiento de "resincronización
-      // total" que ya aplica a nombre/serie/marca/etc.
+      // "Obligatorio" solo se exige durante la auditoría (móvil), no al
+      // importar: muchos clientes no tienen ese dato en su Excel de origen
+      // (p.ej. "Color" obligatorio pero ausente en el inventario histórico)
+      // y bloquear la fila entera por eso impediría importar el resto de
+      // datos reales que sí trae. Se re-escribe entero en cada importación
+      // — un campo sin columna mapeada en este archivo queda vacío, el mismo
+      // comportamiento de "resincronización total" que ya aplica a
+      // nombre/serie/marca/etc.
       const camposPersonalizadosValores: Record<string, string> = {};
       for (const cp of camposPersonalizados) {
         const columna = dto.mapeo[`${PREFIJO_CAMPO_PERSONALIZADO}${cp.id}`];
@@ -261,17 +241,6 @@ export class ImportsService {
         if (valor != null && String(valor).trim() !== '') {
           camposPersonalizadosValores[cp.id] = String(valor);
         }
-      }
-      const personalizadoFaltante = camposPersonalizados.find(
-        (cp) => cp.requerido && !camposPersonalizadosValores[cp.id]?.trim(),
-      );
-      if (personalizadoFaltante) {
-        errores.push({
-          fila: numeroFila,
-          campo: `${PREFIJO_CAMPO_PERSONALIZADO}${personalizadoFaltante.id}`,
-          motivo: `El campo "${personalizadoFaltante.etiqueta}" es obligatorio para este cliente`,
-        });
-        continue;
       }
 
       const ubicacionId = await resolverUbicacionId(

@@ -61,7 +61,9 @@ function valorCampoActivo(
       return activo.categoria.replace('_', ' ');
     case 'fechaAdquisicion':
       return activo.fechaAdquisicion
-        ? new Date(activo.fechaAdquisicion).toLocaleDateString('es-CO')
+        ? new Date(activo.fechaAdquisicion).toLocaleDateString('es-CO', {
+            timeZone: 'America/Bogota',
+          })
         : '';
     case 'valorLibros':
       return activo.valorLibros != null ? String(activo.valorLibros) : '';
@@ -97,6 +99,7 @@ function formatearFecha(fecha: Date | null | undefined): string {
     ? new Date(fecha).toLocaleString('es-CO', {
         dateStyle: 'medium',
         timeStyle: 'short',
+        timeZone: 'America/Bogota',
       })
     : '';
 }

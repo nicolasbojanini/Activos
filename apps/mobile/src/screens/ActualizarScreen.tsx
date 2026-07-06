@@ -95,7 +95,7 @@ const formSchema = z.object({
   ubicacionId: z.string().nullable(),
   responsable: z.string().nullable(),
   centroCosto: z.string().nullable(),
-  nota: z.string().min(1, 'Agrega una nota describiendo el cambio'),
+  nota: z.string(),
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -111,6 +111,7 @@ export function ActualizarScreen({ route, navigation }: Props) {
   const queryClient = useQueryClient();
 
   const esVisible = (campo: string) => campos.find((c) => c.campo === campo)?.visible ?? true;
+  const esRequerido = (campo: string) => campos.find((c) => c.campo === campo)?.requerido ?? false;
   const camposExtra = campos.filter((c) => c.visible && !CAMPOS_CON_WIDGET_PROPIO.has(c.campo));
   const camposPersonalizadosVisibles = camposPersonalizados.filter((cp) => cp.visible);
 
@@ -181,6 +182,45 @@ export function ActualizarScreen({ route, navigation }: Props) {
 
   const onSubmit = async (values: FormValues) => {
     if (!proyecto || !resultado) return;
+
+    // "Obligatorio" se exige acá, al guardar la auditoría — no al importar el
+    // Excel (ver imports.service.ts). Esto permite que un cliente marque un
+    // campo como obligatorio aunque su inventario de origen no lo traiga: la
+    // fila igual se importa, pero el auditor no puede confirmar el activo
+    // sin llenarlo en campo.
+    const faltantes: string[] = [];
+    const vacio = (valor: string | null | undefined) => valor == null || valor.trim() === '';
+    for (const c of campos) {
+      if (!c.visible || !c.requerido) continue;
+      let valor: string | null | undefined;
+      switch (c.campo) {
+        case 'estadoFisico':
+          valor = values.estadoFisico;
+          break;
+        case 'ubicacion':
+          valor = values.ubicacionId;
+          break;
+        case 'responsable':
+          valor = values.responsable;
+          break;
+        case 'centroCosto':
+          valor = values.centroCosto;
+          break;
+        default:
+          valor = valoresExtra[c.campo];
+          break;
+      }
+      if (vacio(valor)) faltantes.push(c.etiqueta);
+    }
+    for (const cp of camposPersonalizadosVisibles) {
+      if (!cp.requerido) continue;
+      if (vacio(valoresExtra[`${PREFIJO_CAMPO_PERSONALIZADO}${cp.id}`])) faltantes.push(cp.etiqueta);
+    }
+    if (faltantes.length > 0) {
+      Alert.alert('Completa los campos obligatorios', faltantes.join(', '));
+      return;
+    }
+
     setEnviando(true);
     const { activo } = resultado;
 
@@ -279,7 +319,10 @@ export function ActualizarScreen({ route, navigation }: Props) {
       <ScrollView contentContainerStyle={{ padding: spacing[4], paddingBottom: 120 }}>
         {esVisible('estadoFisico') && (
           <>
-            <Text style={styles.sectionLabel}>Estado físico</Text>
+            <Text style={styles.sectionLabel}>
+              Estado físico
+              {esRequerido('estadoFisico') && <Text style={{ color: colors.state.danger }}> *</Text>}
+            </Text>
             <Controller
               control={control}
               name="estadoFisico"
@@ -308,7 +351,10 @@ export function ActualizarScreen({ route, navigation }: Props) {
 
         {esVisible('ubicacion') && (
           <>
-            <Text style={styles.sectionLabel}>Ubicación</Text>
+            <Text style={styles.sectionLabel}>
+              Ubicación
+              {esRequerido('ubicacion') && <Text style={{ color: colors.state.danger }}> *</Text>}
+            </Text>
             <Controller
               control={control}
               name="ubicacionId"
@@ -331,7 +377,10 @@ export function ActualizarScreen({ route, navigation }: Props) {
 
         {esVisible('responsable') && (
           <>
-            <Text style={styles.sectionLabel}>Responsable / custodio</Text>
+            <Text style={styles.sectionLabel}>
+              Responsable / custodio
+              {esRequerido('responsable') && <Text style={{ color: colors.state.danger }}> *</Text>}
+            </Text>
             <Controller
               control={control}
               name="responsable"
@@ -344,7 +393,10 @@ export function ActualizarScreen({ route, navigation }: Props) {
 
         {esVisible('centroCosto') && (
           <>
-            <Text style={styles.sectionLabel}>Centro de costo</Text>
+            <Text style={styles.sectionLabel}>
+              Centro de costo
+              {esRequerido('centroCosto') && <Text style={{ color: colors.state.danger }}> *</Text>}
+            </Text>
             <Controller
               control={control}
               name="centroCosto"

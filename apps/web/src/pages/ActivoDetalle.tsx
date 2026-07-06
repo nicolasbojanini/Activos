@@ -31,7 +31,7 @@ const CAMPO_VALOR: Record<string, (activo: ActivoDetailOutput) => string> = {
   responsable: (a) => a.responsable ?? '—',
   centroCosto: (a) => a.centroCosto ?? '—',
   categoria: (a) => a.categoria.replace('_', ' '),
-  fechaAdquisicion: (a) => (a.fechaAdquisicion ? new Date(a.fechaAdquisicion).toLocaleDateString('es-CO') : '—'),
+  fechaAdquisicion: (a) => (a.fechaAdquisicion ? new Date(a.fechaAdquisicion).toLocaleDateString('es-CO', { timeZone: 'America/Bogota' }) : '—'),
   valorLibros: (a) => (a.valorLibros ? `$${Number(a.valorLibros).toLocaleString('es-CO')}` : '—'),
   proveedor: (a) => a.proveedor ?? '—',
   vidaUtilMeses: (a) => (a.vidaUtilMeses ? `${a.vidaUtilMeses} meses` : '—'),
@@ -215,7 +215,7 @@ function TimelineEntry({ registro }: { registro: RegistroHistorialOutput }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
         <EstadoBadge estado={registro.estado} />
         <span style={{ fontSize: 12, color: 'var(--adn-ink-500)' }}>
-          {new Date(registro.auditadoEn).toLocaleString('es-CO', { dateStyle: 'medium', timeStyle: 'short' })}
+          {new Date(registro.auditadoEn).toLocaleString('es-CO', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'America/Bogota' })}
         </span>
       </div>
       <p style={{ fontSize: 13, fontWeight: 600, margin: '0 0 4px' }}>{registro.auditor}</p>
