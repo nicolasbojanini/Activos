@@ -39,6 +39,8 @@ export function InicioScreen({ navigation }: Props) {
   const queryClient = useQueryClient();
   const [q, setQ] = useState('');
   const [sincronizando, setSincronizando] = useState(false);
+  const [errorSesion, setErrorSesion] = useState<string | null>(null);
+  const [descargando, setDescargando] = useState(false);
 
   const invalidarLocal = () => {
     void queryClient.invalidateQueries({ queryKey: ['proyecto-local'] });
@@ -59,14 +61,21 @@ export function InicioScreen({ navigation }: Props) {
 
   const conectado = useConectividad(() => void ejecutarSincronizacion());
 
-  // Bootstrap: intenta refrescar el espejo local con red; si falla, sigue con lo que ya haya local.
+  // Bootstrap: intenta refrescar el espejo local con red; si falla y ya había
+  // un espejo local previo, seguimos con ese (silencioso, es el caso normal
+  // de "sin señal en bodega"). Si falla y NO hay espejo local todavía (primera
+  // descarga), es un error real que hay que mostrar — antes quedaba tragado
+  // en silencio y la pantalla se quedaba en "Cargando…" para siempre sin
+  // ninguna pista de qué pasó.
   useEffect(() => {
     if (!clienteId || !proyectoId) return; // sin asignación: el estado vacío se encarga
     async function bootstrap() {
+      setErrorSesion(null);
+      const habiaSesion = await haySesionDescargada();
+      if (!habiaSesion) setDescargando(true);
       try {
         const proyecto = await getProyecto(proyectoId!);
-        const yaHaySesion = await haySesionDescargada();
-        if (!yaHaySesion) {
+        if (!habiaSesion) {
           await descargarSesion(proyecto);
         } else {
           await guardarProyectoActivo(proyecto);
@@ -75,12 +84,33 @@ export function InicioScreen({ navigation }: Props) {
         void queryClient.invalidateQueries({ queryKey: ['resumen-local'] });
         void queryClient.invalidateQueries({ queryKey: ['activos-local'] });
         void queryClient.invalidateQueries({ queryKey: ['pendientes-sync'] });
-      } catch {
-        // Sin red: seguimos con el espejo local ya descargado (si existe).
+      } catch (err) {
+        if (!habiaSesion) {
+          setErrorSesion(err instanceof Error ? err.message : String(err));
+        }
+        // Si ya había espejo local, el error se ignora: seguimos con lo descargado antes.
+      } finally {
+        setDescargando(false);
       }
     }
     void bootstrap();
   }, [clienteId, proyectoId, queryClient]);
+
+  const reintentarDescarga = () => {
+    void (async () => {
+      setErrorSesion(null);
+      setDescargando(true);
+      try {
+        const proyecto = await getProyecto(proyectoId!);
+        await descargarSesion(proyecto);
+        invalidarLocal();
+      } catch (err) {
+        setErrorSesion(err instanceof Error ? err.message : String(err));
+      } finally {
+        setDescargando(false);
+      }
+    })();
+  };
 
   const { data: proyecto } = useQuery({ queryKey: ['proyecto-local'], queryFn: obtenerProyectoActivo });
   const { data: resumen } = useQuery({ queryKey: ['resumen-local'], queryFn: calcularResumenLocal });
@@ -131,6 +161,30 @@ export function InicioScreen({ navigation }: Props) {
           variant="outline"
           onPress={() => void useAuthStore.getState().clear()}
         />
+      </View>
+    );
+  }
+
+  if (errorSesion) {
+    return (
+      <View style={styles.vacioContainer}>
+        <Text style={styles.vacioTexto}>No se pudo descargar la sesión de auditoría.</Text>
+        <Text style={styles.vacioTexto}>{errorSesion}</Text>
+        <PrimaryButton label="Reintentar" onPress={reintentarDescarga} disabled={descargando} />
+        <PrimaryButton
+          label="Cerrar sesión"
+          variant="outline"
+          onPress={() => void useAuthStore.getState().clear()}
+        />
+      </View>
+    );
+  }
+
+  if (descargando && !proyecto) {
+    return (
+      <View style={styles.vacioContainer}>
+        <ActivityIndicator size="large" color={colors.brand.blue} />
+        <Text style={styles.vacioTexto}>Descargando la base de datos de activos…</Text>
       </View>
     );
   }
