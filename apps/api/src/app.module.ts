@@ -7,12 +7,15 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { ActivosModule } from './activos/activos.module';
 import { AuthModule } from './auth/auth.module';
+import { ClientesModule } from './clientes/clientes.module';
+import { ConfiguracionCamposModule } from './configuracion-campos/configuracion-campos.module';
 import { ImportsModule } from './imports/imports.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { ProyectosModule } from './proyectos/proyectos.module';
 import { RegistrosModule } from './registros/registros.module';
 import { ReportesModule } from './reportes/reportes.module';
 import { UbicacionesModule } from './ubicaciones/ubicaciones.module';
+import { UsuariosModule } from './usuarios/usuarios.module';
 
 @Module({
   imports: [
@@ -21,6 +24,9 @@ import { UbicacionesModule } from './ubicaciones/ubicaciones.module';
     ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: 100 }]),
     PrismaModule,
     AuthModule,
+    ClientesModule,
+    ConfiguracionCamposModule,
+    UsuariosModule,
     ProyectosModule,
     ActivosModule,
     ImportsModule,

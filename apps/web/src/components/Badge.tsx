@@ -5,7 +5,7 @@ const ESTILOS: Record<EstadoAuditoria, { bg: string; color: string; label: strin
   PENDIENTE: { bg: 'var(--adn-ink-100)', color: 'var(--adn-ink-600)', label: 'Pendiente' },
   DIFERENCIA: { bg: 'var(--adn-warning-bg)', color: 'var(--adn-warning)', label: 'Con diferencia' },
   FALTANTE: { bg: 'var(--adn-danger-bg)', color: 'var(--adn-danger)', label: 'Faltante' },
-  NO_REGISTRADO: { bg: 'var(--adn-blue-50)', color: 'var(--adn-blue)', label: 'No registrado' },
+  NO_REGISTRADO: { bg: 'var(--adn-blue-50)', color: 'var(--adn-blue)', label: 'Activo nuevo' },
 };
 
 export function EstadoBadge({ estado }: { estado: EstadoAuditoria }) {

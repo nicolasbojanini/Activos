@@ -19,13 +19,14 @@ export interface ResumenProyectoOutput {
 
 export interface UbicacionOutput {
   id: string;
+  codigo: string;
   sede: string;
   detalle: string | null;
 }
 
 export interface ActivoListItemOutput {
   id: string;
-  placa: string;
+  codigoNuevo: string;
   nombre: string;
   categoria: CategoriaActivo;
   ubicacion: UbicacionOutput | null;
@@ -34,7 +35,12 @@ export interface ActivoListItemOutput {
 }
 
 export interface ActivoDetailOutput extends ActivoListItemOutput {
-  codigoQR: string;
+  codigoAnterior: string | null;
+  codigoControl: string | null;
+  descripcion: string | null;
+  color: string | null;
+  medidas: string | null;
+  capacidad: string | null;
   marca: string | null;
   modelo: string | null;
   serie: string | null;
@@ -45,6 +51,7 @@ export interface ActivoDetailOutput extends ActivoListItemOutput {
   valorLibros: string | null;
   proveedor: string | null;
   vidaUtilMeses: number | null;
+  camposPersonalizados: Record<string, string> | null;
 }
 
 export interface PaginatedOutput<T> {

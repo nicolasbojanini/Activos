@@ -1,8 +1,16 @@
 export const Rol = {
+  ADN_ADMIN: 'ADN_ADMIN',
   COORDINADOR: 'COORDINADOR',
   AUDITOR: 'AUDITOR',
 } as const;
 export type Rol = (typeof Rol)[keyof typeof Rol];
+
+export const EstadoCliente = {
+  PROVISIONANDO: 'PROVISIONANDO',
+  ACTIVO: 'ACTIVO',
+  SUSPENDIDO: 'SUSPENDIDO',
+} as const;
+export type EstadoCliente = (typeof EstadoCliente)[keyof typeof EstadoCliente];
 
 export const EstadoAuditoria = {
   PENDIENTE: 'PENDIENTE',

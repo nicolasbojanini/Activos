@@ -4,6 +4,7 @@ import {
   Controller,
   HttpCode,
   HttpStatus,
+  Param,
   Post,
   UploadedFile,
   UseGuards,
@@ -17,6 +18,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { Rol } from '@adn/shared';
+import type { PrismaClient as TenantPrismaClient } from '../../generated/tenant-client';
 import { ImportsService } from './imports.service';
 import {
   importCommitSchema,
@@ -26,14 +28,16 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
+import { TenantGuard } from '../auth/guards/tenant.guard';
+import { TenantPrisma } from '../prisma/decorators/tenant-prisma.decorator';
 import type { AuthenticatedUser } from '../auth/types/authenticated-user';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe';
 
 @ApiTags('imports')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Rol.COORDINADOR)
-@Controller('imports')
+@UseGuards(JwtAuthGuard, RolesGuard, TenantGuard)
+@Roles(Rol.COORDINADOR, Rol.ADN_ADMIN)
+@Controller('clientes/:clienteId/imports')
 export class ImportsController {
   constructor(private readonly importsService: ImportsService) {}
 
@@ -45,24 +49,31 @@ export class ImportsController {
     summary:
       'Previsualizar un archivo .xlsx/.csv: columnas, muestra y mapeo sugerido',
   })
-  preview(@UploadedFile() file: Express.Multer.File) {
+  preview(
+    @Param('clienteId') clienteId: string,
+    @UploadedFile() file: Express.Multer.File,
+    @Body('hoja') hoja?: string,
+  ) {
     if (!file) {
       throw new BadRequestException('Debes adjuntar un archivo .xlsx o .csv');
     }
-    return this.importsService.preview(file);
+    return this.importsService.preview(file, clienteId, hoja);
   }
 
   @Post('commit')
   @ApiOperation({
     summary:
-      'Confirmar la importación: valida, upsert por placa y registra el lote',
+      'Confirmar la importación: valida, upsert por código nuevo y registra el lote',
   })
   commit(
+    @Param('clienteId') clienteId: string,
+    @TenantPrisma() tenantPrisma: TenantPrismaClient,
     @CurrentUser() user: AuthenticatedUser,
     @Body(new ZodValidationPipe(importCommitSchema)) dto: ImportCommitDto,
   ) {
     return this.importsService.commit(
-      user.organizacionId,
+      tenantPrisma,
+      clienteId,
       user.id,
       dto.archivoNombre,
       dto,

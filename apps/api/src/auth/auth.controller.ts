@@ -53,9 +53,9 @@ export class AuthController {
 
   @Get('me')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Rol.COORDINADOR, Rol.AUDITOR)
+  @Roles(Rol.ADN_ADMIN, Rol.COORDINADOR, Rol.AUDITOR)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Usuario autenticado + rol + organización' })
+  @ApiOperation({ summary: 'Usuario autenticado + rol' })
   me(@CurrentUser() user: AuthenticatedUser) {
     return this.authService.me(user.id);
   }

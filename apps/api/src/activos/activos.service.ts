@@ -1,5 +1,4 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
 import type {
   ActivoDetailOutput,
   ActivoListItemOutput,
@@ -7,140 +6,318 @@ import type {
   PaginatedOutput,
   RegistroHistorialOutput,
 } from '@adn/shared';
-import { PrismaService } from '../prisma/prisma.service';
+import { Prisma } from '../../generated/tenant-client';
+import type {
+  Activo,
+  CategoriaActivo as CategoriaActivoDb,
+  EstadoAuditoria as EstadoAuditoriaDb,
+  PrismaClient as TenantPrismaClient,
+  Ubicacion,
+} from '../../generated/tenant-client';
+import { ControlPrismaService } from '../prisma/control-prisma.service';
+import { resolverNombresAuditores } from '../common/resolver-nombres-auditores';
 import { ProyectosService } from '../proyectos/proyectos.service';
 import { S3Service } from '../files/s3.service';
+
+interface ActivoListRow {
+  id: string;
+  codigoNuevo: string;
+  nombre: string;
+  categoria: CategoriaActivoDb;
+  ubicacionId: string | null;
+  ubicacionCodigo: string | null;
+  ubicacionSede: string | null;
+  ubicacionDetalle: string | null;
+  estado: EstadoAuditoriaDb;
+  auditorId: string | null;
+}
+
+interface ActivoSesionRow {
+  id: string;
+  codigoNuevo: string;
+  codigoAnterior: string | null;
+  codigoControl: string | null;
+  nombre: string;
+  descripcion: string | null;
+  categoria: CategoriaActivoDb;
+  color: string | null;
+  medidas: string | null;
+  capacidad: string | null;
+  marca: string | null;
+  modelo: string | null;
+  serie: string | null;
+  responsable: string | null;
+  centroCosto: string | null;
+  estadoFisico: Activo['estadoFisico'];
+  fechaAdquisicion: Date | null;
+  valorLibros: Prisma.Decimal | null;
+  proveedor: string | null;
+  vidaUtilMeses: number | null;
+  camposPersonalizados: Prisma.JsonValue | null;
+  ubicacionId: string | null;
+  ubicacionCodigo: string | null;
+  ubicacionSede: string | null;
+  ubicacionDetalle: string | null;
+  estado: EstadoAuditoriaDb;
+  auditorId: string | null;
+}
 
 @Injectable()
 export class ActivosService {
   constructor(
-    private readonly prisma: PrismaService,
+    private readonly control: ControlPrismaService,
     private readonly proyectosService: ProyectosService,
     private readonly s3: S3Service,
   ) {}
 
+  /**
+   * Filtra/pagina directamente en SQL contra el "último registro por activo"
+   * (mismo CTE DISTINCT ON que ultimoRegistroPorActivo). Antes armaba un
+   * `WHERE id IN (...)` con TODOS los activos del proyecto que matchean el
+   * estado — a 100k activos eso revienta el límite de Postgres de 32,767
+   * parámetros por consulta preparada (probado en vivo: filtrar por un
+   * estado con ~100k coincidencias tira `too many bind variables`). Acá el
+   * filtro de estado vive en el JOIN, nunca como lista de IDs en memoria.
+   */
   async findAll(
-    organizacionId: string,
+    tenantPrisma: TenantPrismaClient,
     query: ListActivosQuery,
   ): Promise<PaginatedOutput<ActivoListItemOutput>> {
     const proyecto = await this.proyectosService.findOne(
-      organizacionId,
+      tenantPrisma,
       query.proyectoId,
     );
-    const ultimoPorActivo = await this.proyectosService.ultimoRegistroPorActivo(
-      proyecto.id,
+
+    const condiciones: Prisma.Sql[] = [Prisma.sql`a."deletedAt" IS NULL`];
+    if (query.q) {
+      const contiene = `%${query.q}%`;
+      condiciones.push(
+        Prisma.sql`(a."codigoNuevo" ILIKE ${contiene} OR a.nombre ILIKE ${contiene})`,
+      );
+    }
+    if (query.ubicacion) {
+      condiciones.push(Prisma.sql`a."ubicacionId" = ${query.ubicacion}`);
+    }
+    if (query.estado === 'PENDIENTE') {
+      condiciones.push(Prisma.sql`ultimo."activoId" IS NULL`);
+    } else if (query.estado) {
+      condiciones.push(
+        Prisma.sql`ultimo.estado = ${query.estado}::"EstadoAuditoria"`,
+      );
+    }
+    const whereSql = Prisma.join(condiciones, ' AND ');
+
+    const ultimoCte = Prisma.sql`
+      WITH ultimo AS (
+        SELECT DISTINCT ON ("activoId") "activoId", estado, "auditorId"
+        FROM "RegistroAuditoria"
+        WHERE "proyectoId" = ${proyecto.id} AND "activoId" IS NOT NULL
+        ORDER BY "activoId", "auditadoEn" DESC, id DESC
+      )
+    `;
+
+    // Conteo aparte (no count(*) OVER()) para que el total siga siendo correcto
+    // incluso si `page` pide una página fuera de rango y la query de datos
+    // devuelve cero filas — un window function solo viaja pegado a filas reales.
+    const [totalRows, filas] = await Promise.all([
+      tenantPrisma.$queryRaw<{ total: number }[]>`
+        ${ultimoCte}
+        SELECT count(*)::int AS total
+        FROM "Activo" a
+        LEFT JOIN ultimo ON ultimo."activoId" = a.id
+        WHERE ${whereSql}
+      `,
+      tenantPrisma.$queryRaw<ActivoListRow[]>`
+        ${ultimoCte}
+        SELECT
+          a.id, a."codigoNuevo", a.nombre, a.categoria,
+          u.id AS "ubicacionId", u.codigo AS "ubicacionCodigo",
+          u.sede AS "ubicacionSede", u.detalle AS "ubicacionDetalle",
+          COALESCE(ultimo.estado, 'PENDIENTE') AS estado,
+          ultimo."auditorId" AS "auditorId"
+        FROM "Activo" a
+        LEFT JOIN "Ubicacion" u ON u.id = a."ubicacionId"
+        LEFT JOIN ultimo ON ultimo."activoId" = a.id
+        WHERE ${whereSql}
+        ORDER BY a."codigoNuevo" ASC
+        LIMIT ${query.pageSize} OFFSET ${(query.page - 1) * query.pageSize}
+      `,
+    ]);
+    const total = totalRows[0]?.total ?? 0;
+
+    const nombresPorId = await resolverNombresAuditores(
+      this.control,
+      filas.flatMap((f) => (f.auditorId ? [f.auditorId] : [])),
     );
 
-    const where: Prisma.ActivoWhereInput = {
-      organizacionId,
-      deletedAt: null,
-    };
-
-    if (query.q) {
-      where.OR = [
-        { placa: { contains: query.q, mode: 'insensitive' } },
-        { nombre: { contains: query.q, mode: 'insensitive' } },
-      ];
-    }
-
-    if (query.ubicacion) {
-      where.ubicacionId = query.ubicacion;
-    }
-
-    if (query.estado) {
-      if (query.estado === 'PENDIENTE') {
-        where.id = { notIn: [...ultimoPorActivo.keys()] };
-      } else if (query.estado !== 'NO_REGISTRADO') {
-        where.id = {
-          in: [...ultimoPorActivo.entries()]
-            .filter(([, r]) => r.estado === query.estado)
-            .map(([id]) => id),
-        };
-      }
-    }
-
-    const [total, activos] = await Promise.all([
-      this.prisma.activo.count({ where }),
-      this.prisma.activo.findMany({
-        where,
-        include: { ubicacion: true },
-        orderBy: { placa: 'asc' },
-        skip: (query.page - 1) * query.pageSize,
-        take: query.pageSize,
-      }),
-    ]);
-
-    const data: ActivoListItemOutput[] = activos.map((activo) => {
-      const registro = ultimoPorActivo.get(activo.id);
-      return {
-        id: activo.id,
-        placa: activo.placa,
-        nombre: activo.nombre,
-        categoria: activo.categoria,
-        ubicacion: activo.ubicacion
-          ? {
-              id: activo.ubicacion.id,
-              sede: activo.ubicacion.sede,
-              detalle: activo.ubicacion.detalle,
-            }
-          : null,
-        estado: registro?.estado ?? 'PENDIENTE',
-        ultimoAuditor: registro?.auditor.nombre ?? null,
-      };
-    });
+    const data: ActivoListItemOutput[] = filas.map((f) => ({
+      id: f.id,
+      codigoNuevo: f.codigoNuevo,
+      nombre: f.nombre,
+      categoria: f.categoria,
+      ubicacion: f.ubicacionId
+        ? {
+            id: f.ubicacionId,
+            codigo: f.ubicacionCodigo!,
+            sede: f.ubicacionSede!,
+            detalle: f.ubicacionDetalle,
+          }
+        : null,
+      estado: f.estado,
+      ultimoAuditor: f.auditorId
+        ? (nombresPorId.get(f.auditorId) ?? '—')
+        : null,
+    }));
 
     return { data, total, page: query.page, pageSize: query.pageSize };
   }
 
+  /**
+   * Ficha completa de TODOS los activos de un proyecto, en una sola consulta —
+   * es lo que descarga el espejo local de la app móvil al iniciar sesión de
+   * auditoría. Reemplaza al patrón anterior de `findAll()` paginado (varias
+   * páginas de 100) + un `findOne()` por cada activo devuelto: con un
+   * inventario de miles de activos eso son miles de requests HTTP, que
+   * chocan contra el límite global de 100 requests/minuto (ThrottlerModule)
+   * y dejan la sesión atascada en "Cargando…" indefinidamente.
+   */
+  async sesionCompleta(
+    tenantPrisma: TenantPrismaClient,
+    proyectoId: string,
+  ): Promise<ActivoDetailOutput[]> {
+    const proyecto = await this.proyectosService.findOne(
+      tenantPrisma,
+      proyectoId,
+    );
+
+    const filas = await tenantPrisma.$queryRaw<ActivoSesionRow[]>`
+      WITH ultimo AS (
+        SELECT DISTINCT ON ("activoId") "activoId", estado, "auditorId"
+        FROM "RegistroAuditoria"
+        WHERE "proyectoId" = ${proyecto.id} AND "activoId" IS NOT NULL
+        ORDER BY "activoId", "auditadoEn" DESC, id DESC
+      )
+      SELECT
+        a.id, a."codigoNuevo", a."codigoAnterior", a."codigoControl", a.nombre,
+        a.descripcion, a.categoria, a.color, a.medidas, a.capacidad, a.marca,
+        a.modelo, a.serie, a.responsable, a."centroCosto", a."estadoFisico",
+        a."fechaAdquisicion", a."valorLibros", a.proveedor, a."vidaUtilMeses",
+        a."camposPersonalizados",
+        u.id AS "ubicacionId", u.codigo AS "ubicacionCodigo",
+        u.sede AS "ubicacionSede", u.detalle AS "ubicacionDetalle",
+        COALESCE(ultimo.estado, 'PENDIENTE') AS estado,
+        ultimo."auditorId" AS "auditorId"
+      FROM "Activo" a
+      LEFT JOIN "Ubicacion" u ON u.id = a."ubicacionId"
+      LEFT JOIN ultimo ON ultimo."activoId" = a.id
+      WHERE a."deletedAt" IS NULL
+      ORDER BY a."codigoNuevo" ASC
+    `;
+
+    const nombresPorId = await resolverNombresAuditores(
+      this.control,
+      filas.flatMap((f) => (f.auditorId ? [f.auditorId] : [])),
+    );
+
+    return filas.map((f) => ({
+      id: f.id,
+      codigoNuevo: f.codigoNuevo,
+      codigoAnterior: f.codigoAnterior,
+      codigoControl: f.codigoControl,
+      nombre: f.nombre,
+      descripcion: f.descripcion,
+      categoria: f.categoria,
+      color: f.color,
+      medidas: f.medidas,
+      capacidad: f.capacidad,
+      marca: f.marca,
+      modelo: f.modelo,
+      serie: f.serie,
+      ubicacion: f.ubicacionId
+        ? {
+            id: f.ubicacionId,
+            codigo: f.ubicacionCodigo!,
+            sede: f.ubicacionSede!,
+            detalle: f.ubicacionDetalle,
+          }
+        : null,
+      responsable: f.responsable,
+      centroCosto: f.centroCosto,
+      estadoFisico: f.estadoFisico,
+      fechaAdquisicion: f.fechaAdquisicion
+        ? new Date(f.fechaAdquisicion).toISOString()
+        : null,
+      valorLibros: f.valorLibros != null ? f.valorLibros.toString() : null,
+      proveedor: f.proveedor,
+      vidaUtilMeses: f.vidaUtilMeses,
+      camposPersonalizados:
+        (f.camposPersonalizados as Record<string, string> | null) ?? null,
+      estado: f.estado,
+      ultimoAuditor: f.auditorId
+        ? (nombresPorId.get(f.auditorId) ?? '—')
+        : null,
+    }));
+  }
+
   async findOne(
-    organizacionId: string,
+    tenantPrisma: TenantPrismaClient,
     id: string,
   ): Promise<ActivoDetailOutput> {
-    const activo = await this.prisma.activo.findFirst({
-      where: { id, organizacionId, deletedAt: null },
+    const activo = await tenantPrisma.activo.findFirst({
+      where: { id, deletedAt: null },
       include: { ubicacion: true },
     });
     if (!activo) {
       throw new NotFoundException('Activo no encontrado');
     }
-    return this.toDetailOutput(activo);
+    return this.toDetailOutput(tenantPrisma, activo);
   }
 
-  async buscarPorCodigoQR(
-    organizacionId: string,
-    codigoQR: string,
+  async buscarPorCodigo(
+    tenantPrisma: TenantPrismaClient,
+    codigo: string,
   ): Promise<ActivoDetailOutput> {
-    const activo = await this.prisma.activo.findFirst({
-      where: { organizacionId, codigoQR, deletedAt: null },
+    const activo = await tenantPrisma.activo.findFirst({
+      where: { codigoNuevo: codigo, deletedAt: null },
       include: { ubicacion: true },
     });
     if (!activo) {
-      throw new NotFoundException('No se encontró un activo con ese código QR');
+      throw new NotFoundException('No se encontró un activo con ese código');
     }
-    return this.toDetailOutput(activo);
+    return this.toDetailOutput(tenantPrisma, activo);
   }
 
   private async toDetailOutput(
-    activo: Prisma.ActivoGetPayload<{ include: { ubicacion: true } }>,
+    tenantPrisma: TenantPrismaClient,
+    activo: Activo & { ubicacion: Ubicacion | null },
   ): Promise<ActivoDetailOutput> {
-    const ultimoRegistro = await this.prisma.registroAuditoria.findFirst({
+    const ultimoRegistro = await tenantPrisma.registroAuditoria.findFirst({
       where: { activoId: activo.id },
       orderBy: { auditadoEn: 'desc' },
-      include: { auditor: { select: { nombre: true } } },
     });
+    const nombresPorId = await resolverNombresAuditores(
+      this.control,
+      ultimoRegistro ? [ultimoRegistro.auditorId] : [],
+    );
 
     return {
       id: activo.id,
-      placa: activo.placa,
-      codigoQR: activo.codigoQR,
+      codigoNuevo: activo.codigoNuevo,
+      codigoAnterior: activo.codigoAnterior,
+      codigoControl: activo.codigoControl,
       nombre: activo.nombre,
+      descripcion: activo.descripcion,
       categoria: activo.categoria,
+      color: activo.color,
+      medidas: activo.medidas,
+      capacidad: activo.capacidad,
       marca: activo.marca,
       modelo: activo.modelo,
       serie: activo.serie,
       ubicacion: activo.ubicacion
         ? {
             id: activo.ubicacion.id,
+            codigo: activo.ubicacion.codigo,
             sede: activo.ubicacion.sede,
             detalle: activo.ubicacion.detalle,
           }
@@ -152,46 +329,57 @@ export class ActivosService {
       valorLibros: activo.valorLibros?.toString() ?? null,
       proveedor: activo.proveedor,
       vidaUtilMeses: activo.vidaUtilMeses,
+      camposPersonalizados:
+        (activo.camposPersonalizados as Record<string, string> | null) ?? null,
       estado: ultimoRegistro?.estado ?? 'PENDIENTE',
-      ultimoAuditor: ultimoRegistro?.auditor.nombre ?? null,
+      ultimoAuditor: ultimoRegistro
+        ? (nombresPorId.get(ultimoRegistro.auditorId) ?? '—')
+        : null,
     };
   }
 
   /** Línea de tiempo de auditoría del activo (quién/cuándo/qué cambió) + galería de fotos. */
   async historial(
-    organizacionId: string,
+    tenantPrisma: TenantPrismaClient,
     activoId: string,
   ): Promise<RegistroHistorialOutput[]> {
-    const activo = await this.prisma.activo.findFirst({
-      where: { id: activoId, organizacionId },
+    const activo = await tenantPrisma.activo.findFirst({
+      where: { id: activoId },
     });
     if (!activo) {
       throw new NotFoundException('Activo no encontrado');
     }
 
-    const registros = await this.prisma.registroAuditoria.findMany({
+    const registros = await tenantPrisma.registroAuditoria.findMany({
       where: { activoId },
       orderBy: { auditadoEn: 'desc' },
       include: {
-        auditor: { select: { nombre: true } },
         fotos: { orderBy: { orden: 'asc' } },
       },
     });
+    const nombresPorId = await resolverNombresAuditores(
+      this.control,
+      registros.map((r) => r.auditorId),
+    );
 
-    return registros.map((registro) => ({
-      id: registro.id,
-      estado: registro.estado,
-      estadoFisico: registro.estadoFisico,
-      cambios: registro.cambios as RegistroHistorialOutput['cambios'],
-      nota: registro.nota,
-      auditadoEn: registro.auditadoEn.toISOString(),
-      auditor: registro.auditor.nombre,
-      fotos: registro.fotos.map((foto) => ({
-        id: foto.id,
-        url: this.s3.urlPublica(foto.s3Key),
-        etiqueta: foto.etiqueta,
-        orden: foto.orden,
+    return Promise.all(
+      registros.map(async (registro) => ({
+        id: registro.id,
+        estado: registro.estado,
+        estadoFisico: registro.estadoFisico,
+        cambios: registro.cambios as RegistroHistorialOutput['cambios'],
+        nota: registro.nota,
+        auditadoEn: registro.auditadoEn.toISOString(),
+        auditor: nombresPorId.get(registro.auditorId) ?? '—',
+        fotos: await Promise.all(
+          registro.fotos.map(async (foto) => ({
+            id: foto.id,
+            url: await this.s3.urlDescarga(foto.s3Key),
+            etiqueta: foto.etiqueta,
+            orden: foto.orden,
+          })),
+        ),
       })),
-    }));
+    );
   }
 }

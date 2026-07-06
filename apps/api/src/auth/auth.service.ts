@@ -2,7 +2,7 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService, type JwtSignOptions } from '@nestjs/jwt';
 import * as argon2 from 'argon2';
-import { PrismaService } from '../prisma/prisma.service';
+import { ControlPrismaService } from '../prisma/control-prisma.service';
 import type { LoginDto } from './dto/login.dto';
 import type { RefreshDto } from './dto/refresh.dto';
 import type { AuthenticatedUser } from './types/authenticated-user';
@@ -15,7 +15,7 @@ interface JwtRefreshPayload {
 @Injectable()
 export class AuthService {
   constructor(
-    private readonly prisma: PrismaService,
+    private readonly prisma: ControlPrismaService,
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
   ) {}
@@ -39,14 +39,14 @@ export class AuthService {
     nombre: string;
     email: string;
     rol: AuthenticatedUser['rol'];
-    organizacionId: string;
+    activo: boolean;
   }) {
     return {
       id: usuario.id,
       nombre: usuario.nombre,
       email: usuario.email,
       rol: usuario.rol,
-      organizacionId: usuario.organizacionId,
+      activo: usuario.activo,
     };
   }
 
@@ -100,15 +100,8 @@ export class AuthService {
   async me(userId: string) {
     const usuario = await this.prisma.usuario.findUniqueOrThrow({
       where: { id: userId },
-      include: { organizacion: true },
     });
 
-    return {
-      ...this.toUsuarioOutput(usuario),
-      organizacion: {
-        id: usuario.organizacion.id,
-        nombre: usuario.organizacion.nombre,
-      },
-    };
+    return this.toUsuarioOutput(usuario);
   }
 }

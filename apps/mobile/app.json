@@ -29,6 +29,12 @@
       "expo-secure-store",
       "expo-sqlite",
       "@sentry/react-native"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "bd3d32fb-68c0-42d9-8391-99bd042ba59a"
+      }
+    },
+    "owner": "nbojani"
   }
 }

@@ -1,15 +1,25 @@
 import { z } from 'zod';
 import { CategoriaActivo, EstadoAuditoria, EstadoFisico } from '../enums';
 
-/** Los 13+ campos mínimos de ficha (ver 02-MODELO-DE-DATOS.md). */
+/**
+ * `codigoNuevo` es el único campo estructuralmente obligatorio (es el
+ * identificador único del activo). Todo lo demás es opcional a este nivel —
+ * cuáles campos son realmente obligatorios para un cliente dado se valida
+ * dinámicamente contra su ConfiguracionCampo (ver imports.service.ts).
+ */
 export const activoSchema = z.object({
   id: z.string().optional(),
-  organizacionId: z.string(),
 
-  placa: z.string().min(1, 'La placa es obligatoria'),
-  codigoQR: z.string().min(1, 'El código QR es obligatorio'),
-  nombre: z.string().min(1, 'El nombre es obligatorio'),
-  categoria: z.nativeEnum(CategoriaActivo),
+  codigoNuevo: z.string().min(1, 'El código nuevo es obligatorio'),
+  codigoAnterior: z.string().nullable().optional(),
+  codigoControl: z.string().nullable().optional(),
+  nombre: z.string().nullable().optional(),
+  descripcion: z.string().nullable().optional(),
+  categoria: z.nativeEnum(CategoriaActivo).optional(),
+
+  color: z.string().nullable().optional(),
+  medidas: z.string().nullable().optional(),
+  capacidad: z.string().nullable().optional(),
 
   marca: z.string().nullable().optional(),
   modelo: z.string().nullable().optional(),
@@ -24,17 +34,13 @@ export const activoSchema = z.object({
   valorLibros: z.coerce.number().nullable().optional(),
   proveedor: z.string().nullable().optional(),
   vidaUtilMeses: z.coerce.number().int().nullable().optional(),
+
+  camposPersonalizados: z.record(z.string(), z.string()).nullable().optional(),
 });
 
 export type ActivoInput = z.infer<typeof activoSchema>;
 
-export const activoImportRowSchema = activoSchema.omit({
-  id: true,
-  organizacionId: true,
-  codigoQR: true,
-}).extend({
-  codigoQR: z.string().nullable().optional(),
-});
+export const activoImportRowSchema = activoSchema.omit({ id: true });
 
 export type ActivoImportRow = z.infer<typeof activoImportRowSchema>;
 
@@ -50,7 +56,13 @@ export const listActivosQuerySchema = z.object({
 export type ListActivosQuery = z.infer<typeof listActivosQuerySchema>;
 
 export const buscarActivoQuerySchema = z.object({
-  codigoQR: z.string().min(1),
+  codigo: z.string().min(1),
 });
 
 export type BuscarActivoQuery = z.infer<typeof buscarActivoQuerySchema>;
+
+export const sesionActivosQuerySchema = z.object({
+  proyectoId: z.string(),
+});
+
+export type SesionActivosQuery = z.infer<typeof sesionActivosQuerySchema>;

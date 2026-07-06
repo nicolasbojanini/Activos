@@ -1,5 +1,4 @@
 import { eq } from 'drizzle-orm';
-import NetInfo from '@react-native-community/netinfo';
 import type { RegistroAuditoriaInput } from '@adn/shared';
 import { db } from '../db/client';
 import { activosLocal, colaRegistros } from '../db/schema';
@@ -9,7 +8,7 @@ import { archivoLocalFoto, eliminarFotoLocal, type FotoCapturada } from './fotos
 type FotoLocalConDimensiones = Pick<FotoCapturada, 'clientPhotoId' | 'etiqueta' | 'orden' | 'ancho' | 'alto'>;
 
 interface EncolarInput extends Omit<RegistroAuditoriaInput, 'fotos'> {
-  placaSnapshot?: string;
+  codigoNuevoSnapshot?: string;
   nombreSnapshot?: string;
   fotos: FotoLocalConDimensiones[];
 }
@@ -26,7 +25,7 @@ export async function encolarRegistro(input: EncolarInput): Promise<{ sincroniza
     clientId: input.clientId,
     proyectoId: input.proyectoId,
     activoId: input.activoId,
-    placaSnapshot: input.placaSnapshot ?? null,
+    codigoNuevoSnapshot: input.codigoNuevoSnapshot ?? null,
     nombreSnapshot: input.nombreSnapshot ?? null,
     estado: input.estado,
     estadoFisico: input.estadoFisico ?? null,
@@ -37,11 +36,6 @@ export async function encolarRegistro(input: EncolarInput): Promise<{ sincroniza
     synced: 0,
     createdAt: new Date().toISOString(),
   });
-
-  const estadoRed = await NetInfo.fetch();
-  if (!estadoRed.isConnected) {
-    return { sincronizadoAlInstante: false };
-  }
 
   const exito = await intentarSincronizar(input.clientId, input);
   return { sincronizadoAlInstante: exito };
@@ -97,11 +91,15 @@ async function intentarSincronizar(clientId: string, input: EncolarInput): Promi
   try {
     const { registro, uploads } = await crearRegistro(aRegistroAuditoriaInput(input));
     const fotosSubidas = await subirYConfirmarFotos(registro.id, uploads, input.fotos);
-    if (!fotosSubidas) return false;
+    if (!fotosSubidas) {
+      console.warn('[sync] subida de fotos falló, registro queda pendiente', clientId);
+      return false;
+    }
 
     await marcarComoSincronizado(clientId, input);
     return true;
-  } catch {
+  } catch (err) {
+    console.warn('[sync] intentarSincronizar falló', clientId, err);
     return false;
   }
 }

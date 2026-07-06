@@ -5,16 +5,19 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import * as Crypto from 'expo-crypto';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { colors, radius, spacing } from '@adn/ui-tokens';
-import type { EstadoFisico } from '@adn/shared';
+import type { CampoPersonalizadoOutput, ConfiguracionCampoOutput, EstadoFisico } from '@adn/shared';
 import { obtenerActivoLocal } from '../db/sync';
 import { useProyectoActual } from '../lib/useProyectoActual';
+import { useConfiguracionCampos } from '../lib/useConfiguracionCampos';
 import { encolarRegistro } from '../lib/registro-offline';
+import { calcularReubicacionAutomatica } from '../lib/ubicacion-relocate';
 import { EstadoBadge } from '../components/EstadoBadge';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { HeaderBar } from '../components/HeaderBar';
 import type { RootStackParamList } from '../navigation/types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Detalle'>;
+type ActivoLocal = NonNullable<Awaited<ReturnType<typeof obtenerActivoLocal>>>['activo'];
 
 const ESTADO_FISICO_LABEL: Record<EstadoFisico, string> = {
   BUENO: 'Bueno',
@@ -23,32 +26,49 @@ const ESTADO_FISICO_LABEL: Record<EstadoFisico, string> = {
   BAJA: 'De baja',
 };
 
-function ficha(activo: NonNullable<Awaited<ReturnType<typeof obtenerActivoLocal>>>['activo']) {
-  return [
-    { label: 'Placa', valor: activo.placa },
-    { label: 'Código QR', valor: activo.codigoQR },
-    { label: 'Nombre / descripción', valor: activo.nombre },
-    { label: 'Categoría', valor: activo.categoria.replace('_', ' ') },
-    { label: 'Marca', valor: activo.marca ?? '—' },
-    { label: 'Modelo', valor: activo.modelo ?? '—' },
-    { label: 'N° de serie', valor: activo.serie ?? '—' },
-    { label: 'Ubicación', valor: activo.ubicacionSede ?? '—' },
-    { label: 'Responsable', valor: activo.responsable ?? '—' },
-    { label: 'Centro de costo', valor: activo.centroCosto ?? '—' },
-    { label: 'Estado físico', valor: ESTADO_FISICO_LABEL[activo.estadoFisico as EstadoFisico] },
-    {
-      label: 'Fecha de adquisición',
-      valor: activo.fechaAdquisicion ? new Date(activo.fechaAdquisicion).toLocaleDateString('es-CO') : '—',
-    },
-    { label: 'Valor en libros', valor: activo.valorLibros ? `$${Number(activo.valorLibros).toLocaleString('es-CO')}` : '—' },
-    { label: 'Proveedor', valor: activo.proveedor ?? '—' },
-    { label: 'Vida útil', valor: activo.vidaUtilMeses ? `${activo.vidaUtilMeses} meses` : '—' },
-  ];
+const CAMPO_VALOR: Record<string, (activo: ActivoLocal) => string> = {
+  codigoNuevo: (a) => a.codigoNuevo,
+  codigoAnterior: (a) => a.codigoAnterior ?? '—',
+  codigoControl: (a) => a.codigoControl ?? '—',
+  nombre: (a) => a.nombre,
+  descripcion: (a) => a.descripcion ?? '—',
+  ubicacion: (a) => a.ubicacionSede ?? '—',
+  color: (a) => a.color ?? '—',
+  medidas: (a) => a.medidas ?? '—',
+  capacidad: (a) => a.capacidad ?? '—',
+  marca: (a) => a.marca ?? '—',
+  modelo: (a) => a.modelo ?? '—',
+  serie: (a) => a.serie ?? '—',
+  estadoFisico: (a) => ESTADO_FISICO_LABEL[a.estadoFisico as EstadoFisico],
+  responsable: (a) => a.responsable ?? '—',
+  centroCosto: (a) => a.centroCosto ?? '—',
+  categoria: (a) => a.categoria.replace('_', ' '),
+  fechaAdquisicion: (a) => (a.fechaAdquisicion ? new Date(a.fechaAdquisicion).toLocaleDateString('es-CO') : '—'),
+  valorLibros: (a) => (a.valorLibros ? `$${Number(a.valorLibros).toLocaleString('es-CO')}` : '—'),
+  proveedor: (a) => a.proveedor ?? '—',
+  vidaUtilMeses: (a) => (a.vidaUtilMeses ? `${a.vidaUtilMeses} meses` : '—'),
+};
+
+function ficha(activo: ActivoLocal, campos: ConfiguracionCampoOutput[], camposPersonalizados: CampoPersonalizadoOutput[]) {
+  const filas = campos
+    .filter((c) => c.visible)
+    .map((c) => ({ label: c.etiqueta, valor: CAMPO_VALOR[c.campo]?.(activo) ?? '—' }));
+
+  const valoresPersonalizados: Record<string, string> = activo.camposPersonalizadosJson
+    ? (JSON.parse(activo.camposPersonalizadosJson) as Record<string, string>)
+    : {};
+  const personalizados = camposPersonalizados
+    .filter((cp) => cp.visible)
+    .map((cp) => ({ label: cp.etiqueta, valor: valoresPersonalizados[cp.id] }))
+    .filter((f): f is { label: string; valor: string } => !!f.valor);
+
+  return [...filas, ...personalizados];
 }
 
 export function DetalleScreen({ route, navigation }: Props) {
   const { activoId, escaneado } = route.params;
   const { proyecto } = useProyectoActual();
+  const { campos, camposPersonalizados } = useConfiguracionCampos();
   const [enviando, setEnviando] = useState(false);
   const queryClient = useQueryClient();
 
@@ -67,27 +87,37 @@ export function DetalleScreen({ route, navigation }: Props) {
   const enviarRegistro = async (estado: 'AUDITADO' | 'FALTANTE') => {
     if (!proyecto || !resultado) return;
     setEnviando(true);
+    const reubicacion = calcularReubicacionAutomatica(resultado.activo.ubicacionId);
+    // Un cambio de ubicación es una diferencia real; solo se escala el confirm rápido
+    // ("coincide") — un FALTANTE queda igual, aunque el diff se adjunta por trazabilidad.
+    const estadoFinal = reubicacion && estado === 'AUDITADO' ? 'DIFERENCIA' : estado;
     try {
       await encolarRegistro({
         clientId: Crypto.randomUUID(),
         proyectoId: proyecto.id,
         activoId: resultado.activo.id,
-        estado,
+        estado: estadoFinal,
+        cambios: reubicacion ?? undefined,
         auditadoEn: new Date(),
         fotos: [],
-        placaSnapshot: resultado.activo.placa,
+        codigoNuevoSnapshot: resultado.activo.codigoNuevo,
         nombreSnapshot: resultado.activo.nombre,
       });
       invalidarLocal();
       navigation.replace('Confirmacion', {
-        resultado: estado,
-        titulo: estado === 'AUDITADO' ? 'Activo confirmado' : 'Faltante reportado',
-        mensaje:
-          estado === 'AUDITADO'
+        resultado: estadoFinal,
+        titulo: reubicacion
+          ? 'Activo reubicado'
+          : estado === 'AUDITADO'
+            ? 'Activo confirmado'
+            : 'Faltante reportado',
+        mensaje: reubicacion
+          ? 'El activo quedó reubicado a la ubicación activa de esta sesión.'
+          : estado === 'AUDITADO'
             ? 'El activo coincide con la ficha registrada.'
             : 'Se registró el activo como faltante en esta auditoría.',
         nombreActivo: resultado.activo.nombre,
-        placa: resultado.activo.placa,
+        codigo: resultado.activo.codigoNuevo,
       });
     } catch {
       Alert.alert('Error', 'No se pudo guardar el registro. Intenta de nuevo.');
@@ -116,7 +146,7 @@ export function DetalleScreen({ route, navigation }: Props) {
     <View style={{ flex: 1, backgroundColor: '#fff' }}>
       <HeaderBar
         title="Detalle del activo"
-        subtitle={activo.placa}
+        subtitle={activo.codigoNuevo}
         onBack={() => navigation.goBack()}
         rightBadge={escaneado ? 'Escaneado' : undefined}
       />
@@ -131,7 +161,7 @@ export function DetalleScreen({ route, navigation }: Props) {
         </View>
 
         <View style={styles.fichaCard}>
-          {ficha(activo).map((campo, i) => (
+          {ficha(activo, campos, camposPersonalizados).map((campo, i) => (
             <View key={campo.label} style={[styles.fichaRow, i === 0 && { borderTopWidth: 0 }]}>
               <Text style={styles.fichaLabel}>{campo.label}</Text>
               <Text style={styles.fichaValor}>{campo.valor}</Text>

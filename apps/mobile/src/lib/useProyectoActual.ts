@@ -1,8 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
-import { getProyectos } from './services';
+import { obtenerProyectoActivo } from '../db/sync';
 
-/** MVP: una sola auditoría activa por organización (ver M2/M3 del roadmap). */
+/** Lee el proyecto activo del espejo local (ya resuelto por el bootstrap de InicioScreen). */
 export function useProyectoActual() {
-  const { data: proyectos, ...rest } = useQuery({ queryKey: ['proyectos'], queryFn: getProyectos });
-  return { proyecto: proyectos?.[0], ...rest };
+  const { data: proyecto, ...rest } = useQuery({ queryKey: ['proyecto-local'], queryFn: obtenerProyectoActivo });
+  return { proyecto: proyecto ?? undefined, ...rest };
 }

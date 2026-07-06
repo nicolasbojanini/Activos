@@ -1,5 +1,13 @@
-import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  ForbiddenException,
+  Get,
+  Param,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import type { PrismaClient as TenantPrismaClient } from '../../generated/tenant-client';
 import { ActivosService } from './activos.service';
 import {
   listActivosQuerySchema,
@@ -9,26 +17,40 @@ import {
   buscarActivoQuerySchema,
   type BuscarActivoQueryDto,
 } from './dto/buscar-activo-query.dto';
-import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import {
+  sesionActivosQuerySchema,
+  type SesionActivosQueryDto,
+} from './dto/sesion-activos-query.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import type { AuthenticatedUser } from '../auth/types/authenticated-user';
+import { TenantGuard } from '../auth/guards/tenant.guard';
+import {
+  AsignacionProyectoIds,
+  TenantPrisma,
+} from '../prisma/decorators/tenant-prisma.decorator';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe';
 
 @ApiTags('activos')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
-@Controller('activos')
+@UseGuards(JwtAuthGuard, TenantGuard)
+@Controller('clientes/:clienteId/activos')
 export class ActivosController {
   constructor(private readonly activosService: ActivosService) {}
 
   @Get()
   @ApiOperation({ summary: 'Tabla paginada de activos (web) / lista (móvil)' })
   findAll(
-    @CurrentUser() user: AuthenticatedUser,
+    @TenantPrisma() tenantPrisma: TenantPrismaClient,
     @Query(new ZodValidationPipe(listActivosQuerySchema))
     query: ListActivosQueryDto,
+    @AsignacionProyectoIds() proyectoIdsPermitidos?: string[],
   ) {
-    return this.activosService.findAll(user.organizacionId, query);
+    if (
+      proyectoIdsPermitidos &&
+      !proyectoIdsPermitidos.includes(query.proyectoId)
+    ) {
+      throw new ForbiddenException('No tienes acceso a ese proyecto');
+    }
+    return this.activosService.findAll(tenantPrisma, query);
   }
 
   @Get('buscar')
@@ -37,27 +59,50 @@ export class ActivosController {
       'Resolver un código QR escaneado a un activo (404 → flujo NO_REGISTRADO)',
   })
   buscar(
-    @CurrentUser() user: AuthenticatedUser,
+    @TenantPrisma() tenantPrisma: TenantPrismaClient,
     @Query(new ZodValidationPipe(buscarActivoQuerySchema))
     query: BuscarActivoQueryDto,
   ) {
-    return this.activosService.buscarPorCodigoQR(
-      user.organizacionId,
-      query.codigoQR,
-    );
+    return this.activosService.buscarPorCodigo(tenantPrisma, query.codigo);
+  }
+
+  @Get('sesion')
+  @ApiOperation({
+    summary:
+      'Ficha completa de todos los activos del proyecto en una sola llamada (espejo local de la app móvil)',
+  })
+  sesionCompleta(
+    @TenantPrisma() tenantPrisma: TenantPrismaClient,
+    @Query(new ZodValidationPipe(sesionActivosQuerySchema))
+    query: SesionActivosQueryDto,
+    @AsignacionProyectoIds() proyectoIdsPermitidos?: string[],
+  ) {
+    if (
+      proyectoIdsPermitidos &&
+      !proyectoIdsPermitidos.includes(query.proyectoId)
+    ) {
+      throw new ForbiddenException('No tienes acceso a ese proyecto');
+    }
+    return this.activosService.sesionCompleta(tenantPrisma, query.proyectoId);
   }
 
   @Get(':id')
   @ApiOperation({ summary: 'Ficha completa del activo + último registro' })
-  findOne(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
-    return this.activosService.findOne(user.organizacionId, id);
+  findOne(
+    @TenantPrisma() tenantPrisma: TenantPrismaClient,
+    @Param('id') id: string,
+  ) {
+    return this.activosService.findOne(tenantPrisma, id);
   }
 
   @Get(':id/registros')
   @ApiOperation({
     summary: 'Línea de tiempo de registros de auditoría + galería de fotos',
   })
-  historial(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
-    return this.activosService.historial(user.organizacionId, id);
+  historial(
+    @TenantPrisma() tenantPrisma: TenantPrismaClient,
+    @Param('id') id: string,
+  ) {
+    return this.activosService.historial(tenantPrisma, id);
   }
 }

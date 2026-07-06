@@ -3,9 +3,16 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
-import type { ConfirmarFotosInput, RegistroAuditoriaInput } from '@adn/shared';
-import { PrismaService } from '../prisma/prisma.service';
+import type {
+  CategoriaActivo,
+  ConfirmarFotosInput,
+  RegistroAuditoriaInput,
+} from '@adn/shared';
+import { Prisma } from '../../generated/tenant-client';
+import type {
+  Activo,
+  PrismaClient as TenantPrismaClient,
+} from '../../generated/tenant-client';
 import { ProyectosService } from '../proyectos/proyectos.service';
 import { S3Service } from '../files/s3.service';
 
@@ -15,10 +22,41 @@ export interface UploadEntry {
   s3Key: string;
 }
 
+/** Campos de texto opcionales del catálogo, aplicables tal cual desde `cambios`. */
+const CAMPOS_TEXTO_OPCIONAL = [
+  'codigoAnterior',
+  'codigoControl',
+  'descripcion',
+  'color',
+  'medidas',
+  'capacidad',
+  'marca',
+  'modelo',
+  'serie',
+  'responsable',
+  'centroCosto',
+  'proveedor',
+] as const;
+type CampoTextoOpcional = (typeof CAMPOS_TEXTO_OPCIONAL)[number];
+
+function esCampoTextoOpcional(campo: string): campo is CampoTextoOpcional {
+  return (CAMPOS_TEXTO_OPCIONAL as readonly string[]).includes(campo);
+}
+
+/** Prefijo de clave usado en `cambios` para diffs de CampoPersonalizado: `personalizado:<id>`. */
+const PREFIJO_CAMPO_PERSONALIZADO = 'personalizado:';
+
+function aTextoPlano(valor: unknown): string {
+  if (typeof valor === 'string') return valor;
+  if (typeof valor === 'number' || typeof valor === 'boolean') {
+    return String(valor);
+  }
+  return '';
+}
+
 @Injectable()
 export class RegistrosService {
   constructor(
-    private readonly prisma: PrismaService,
     private readonly proyectosService: ProyectosService,
     private readonly s3: S3Service,
   ) {}
@@ -36,11 +74,11 @@ export class RegistrosService {
    * clientId nunca duplica el registro.
    */
   async crear(
-    organizacionId: string,
+    tenantPrisma: TenantPrismaClient,
     auditorId: string,
     dto: RegistroAuditoriaInput,
   ) {
-    const existente = await this.prisma.registroAuditoria.findUnique({
+    const existente = await tenantPrisma.registroAuditoria.findUnique({
       where: { clientId: dto.clientId },
       include: { fotos: true },
     });
@@ -60,7 +98,7 @@ export class RegistrosService {
     }
 
     const proyecto = await this.proyectosService.findOne(
-      organizacionId,
+      tenantPrisma,
       dto.proyectoId,
     );
 
@@ -71,8 +109,8 @@ export class RegistrosService {
     }
 
     const activo = dto.activoId
-      ? await this.prisma.activo.findFirst({
-          where: { id: dto.activoId, organizacionId, deletedAt: null },
+      ? await tenantPrisma.activo.findFirst({
+          where: { id: dto.activoId, deletedAt: null },
         })
       : null;
     if (dto.activoId && !activo) {
@@ -84,11 +122,20 @@ export class RegistrosService {
       s3Key: this.construirS3Key(dto.clientId, foto.clientPhotoId),
     }));
 
-    const registro = await this.prisma.$transaction(async (tx) => {
+    const registro = await tenantPrisma.$transaction(async (tx) => {
+      // NO_REGISTRADO ya no queda como hallazgo huérfano a la espera de que el
+      // coordinador lo promueva: el activo se da de alta en el mismo momento en
+      // que el auditor lo escanea, con los datos mínimos que capturó en campo.
+      const activoNuevo =
+        !activo && dto.estado === 'NO_REGISTRADO'
+          ? await this.crearActivoDesdeHallazgo(tx, dto)
+          : null;
+      const activoParaCambios = activo ?? activoNuevo;
+
       const creado = await tx.registroAuditoria.create({
         data: {
           proyectoId: proyecto.id,
-          activoId: dto.activoId,
+          activoId: activoParaCambios?.id ?? dto.activoId,
           auditorId,
           estado: dto.estado,
           estadoFisico: dto.estadoFisico ?? null,
@@ -103,8 +150,8 @@ export class RegistrosService {
         },
       });
 
-      if (activo) {
-        await this.aplicarCambiosAActivo(tx, activo.id, dto);
+      if (activoParaCambios) {
+        await this.aplicarCambiosAActivo(tx, activoParaCambios.id, dto);
       }
 
       if (fotosConKey.length > 0) {
@@ -137,12 +184,12 @@ export class RegistrosService {
 
   /** Confirma que las fotos ya se subieron a S3 y completa sus metadatos (ancho/alto/bytes). */
   async confirmarFotos(
-    organizacionId: string,
+    tenantPrisma: TenantPrismaClient,
     registroId: string,
     dto: ConfirmarFotosInput,
   ) {
-    const registro = await this.prisma.registroAuditoria.findFirst({
-      where: { id: registroId, proyecto: { organizacionId } },
+    const registro = await tenantPrisma.registroAuditoria.findFirst({
+      where: { id: registroId },
     });
     if (!registro) {
       throw new NotFoundException('Registro no encontrado');
@@ -150,20 +197,66 @@ export class RegistrosService {
 
     await Promise.all(
       dto.fotos.map((foto) =>
-        this.prisma.foto.updateMany({
+        tenantPrisma.foto.updateMany({
           where: { registroId, s3Key: foto.s3Key },
           data: { ancho: foto.ancho, alto: foto.alto, bytes: foto.bytes },
         }),
       ),
     );
 
-    return this.prisma.foto.findMany({ where: { registroId } });
+    return tenantPrisma.foto.findMany({ where: { registroId } });
+  }
+
+  /**
+   * Da de alta el Activo detrás de un hallazgo NO_REGISTRADO, tomando codigoNuevo/
+   * nombre/categoria de `cambios` (siempre presentes: los llena NoRegistradoScreen
+   * en mobile). Si el código ya existe — otro auditor registró el mismo hallazgo
+   * en paralelo, o alguien lo escaneó dos veces antes de que el espejo local se
+   * refrescara — reutiliza el Activo existente en vez de fallar por duplicado.
+   */
+  private async crearActivoDesdeHallazgo(
+    tx: Prisma.TransactionClient,
+    dto: RegistroAuditoriaInput,
+  ): Promise<Activo> {
+    const cambios = dto.cambios ?? {};
+    const codigoNuevo = (
+      cambios.codigoNuevo as { despues?: unknown } | undefined
+    )?.despues as string | undefined;
+    const nombre = (cambios.nombre as { despues?: unknown } | undefined)
+      ?.despues as string | undefined;
+    const categoria = (cambios.categoria as { despues?: unknown } | undefined)
+      ?.despues as CategoriaActivo | undefined;
+
+    if (!codigoNuevo || !nombre || !categoria) {
+      throw new BadRequestException(
+        'codigoNuevo, nombre y categoria son obligatorios para registrar un activo nuevo',
+      );
+    }
+
+    const existente = await tx.activo.findFirst({ where: { codigoNuevo } });
+    if (existente) return existente;
+
+    try {
+      return await tx.activo.create({
+        data: { codigoNuevo, nombre, categoria },
+      });
+    } catch (err) {
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2002'
+      ) {
+        return tx.activo.findFirstOrThrow({ where: { codigoNuevo } });
+      }
+      throw err;
+    }
   }
 
   /**
    * "Last-write-wins" a nivel de campo sobre el Activo: la ficha siempre
    * refleja el último valor conocido, mientras que el RegistroAuditoria
-   * preserva la historia completa e inmutable de cada captura.
+   * preserva la historia completa e inmutable de cada captura. Aplica
+   * cualquier campo del catálogo presente en `cambios` (no solo un subconjunto
+   * fijo), y mergea `camposPersonalizados` en vez de sobreescribirlo entero.
    */
   private async aplicarCambiosAActivo(
     tx: Prisma.TransactionClient,
@@ -177,15 +270,45 @@ export class RegistrosService {
     }
 
     if (dto.cambios) {
+      const camposPersonalizadosNuevos: Record<string, string> = {};
+
       for (const [campo, diff] of Object.entries(dto.cambios)) {
         const despues = (diff as { despues?: unknown }).despues;
+
         if (campo === 'ubicacionId') {
           data.ubicacion = despues
             ? { connect: { id: despues as string } }
             : { disconnect: true };
-        } else if (campo === 'responsable' || campo === 'centroCosto') {
+        } else if (campo === 'nombre') {
+          if (despues) data.nombre = despues;
+        } else if (esCampoTextoOpcional(campo)) {
           data[campo] = (despues as string) ?? null;
+        } else if (campo === 'categoria') {
+          if (despues) data.categoria = despues;
+        } else if (campo === 'estadoFisico') {
+          if (despues) data.estadoFisico = despues;
+        } else if (campo === 'fechaAdquisicion') {
+          data.fechaAdquisicion = despues ? new Date(despues as string) : null;
+        } else if (campo === 'valorLibros') {
+          data.valorLibros = despues != null ? Number(despues) : null;
+        } else if (campo === 'vidaUtilMeses') {
+          data.vidaUtilMeses = despues != null ? Number(despues) : null;
+        } else if (campo.startsWith(PREFIJO_CAMPO_PERSONALIZADO)) {
+          const id = campo.slice(PREFIJO_CAMPO_PERSONALIZADO.length);
+          camposPersonalizadosNuevos[id] = aTextoPlano(despues);
         }
+      }
+
+      if (Object.keys(camposPersonalizadosNuevos).length > 0) {
+        const activo = await tx.activo.findUniqueOrThrow({
+          where: { id: activoId },
+        });
+        const actuales =
+          (activo.camposPersonalizados as Record<string, string> | null) ?? {};
+        data.camposPersonalizados = {
+          ...actuales,
+          ...camposPersonalizadosNuevos,
+        };
       }
     }
 

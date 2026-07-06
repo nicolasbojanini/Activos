@@ -1,11 +1,20 @@
 import './instrument';
 
+import { json, urlencoded } from 'express';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 
+// El body-parser por defecto de Express (100kb) alcanza para requests
+// normales, pero el commit de una importación manda las filas del Excel
+// completas como JSON — un cliente de 100.000 activos puede pesar varios MB.
+// Se desactiva el parser automático de Nest para poder subir el límite acá.
+const LIMITE_BODY = '50mb';
+
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, { bodyParser: false });
+  app.use(json({ limit: LIMITE_BODY }));
+  app.use(urlencoded({ extended: true, limit: LIMITE_BODY }));
   app.setGlobalPrefix('api/v1');
   app.enableCors();
 

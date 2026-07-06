@@ -14,10 +14,13 @@ export function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
+  const resolverAsignacionActual = useAuthStore((s) => s.resolverAsignacionActual);
+
   const mutation = useMutation({
     mutationFn: () => login(email.trim(), password),
-    onSuccess: (data) => {
-      void setSession(data);
+    onSuccess: async (data) => {
+      await setSession(data);
+      await resolverAsignacionActual();
     },
   });
 

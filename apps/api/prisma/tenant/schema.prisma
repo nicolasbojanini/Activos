@@ -1,0 +1,160 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../../generated/tenant-client"
+}
+
+datasource db {
+  provider = "postgresql"
+  // Placeholder: solo se usa para `generate`/`migrate`. En runtime cada instancia
+  // del cliente recibe su URL real vía `datasourceUrl` al construirse (ver
+  // TenantClientRegistryService) — nunca lee esta env var directamente.
+  url      = env("TENANT_DATABASE_URL")
+}
+
+enum EstadoAuditoria {
+  PENDIENTE
+  AUDITADO
+  DIFERENCIA
+  FALTANTE
+  NO_REGISTRADO
+}
+
+enum EstadoFisico {
+  BUENO
+  REGULAR
+  MALO
+  BAJA
+}
+
+enum CategoriaActivo {
+  EQUIPOS_COMPUTO
+  MOBILIARIO
+  MAQUINARIA
+  VEHICULOS
+  HERRAMIENTAS
+  OTRO
+}
+
+model Ubicacion {
+  id      String   @id @default(cuid())
+  codigo  String   @unique
+  sede    String
+  detalle String?
+  activos Activo[]
+}
+
+model ProyectoAuditoria {
+  id         String   @id @default(cuid())
+  nombre     String
+  fechaCorte DateTime
+  cerrado    Boolean  @default(false)
+  registros  RegistroAuditoria[]
+  lotes      LoteImportacion[]
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model Activo {
+  id             String   @id @default(cuid())
+
+  // — Identificación —
+  codigoNuevo    String
+  codigoAnterior String?
+  codigoControl  String?
+  nombre         String
+  descripcion    String?
+  categoria      CategoriaActivo
+
+  // — Especificación —
+  color          String?
+  medidas        String?
+  capacidad      String?
+  marca          String?
+  modelo         String?
+  serie          String?
+
+  // — Ubicación y responsable —
+  ubicacionId    String?
+  ubicacion      Ubicacion? @relation(fields: [ubicacionId], references: [id])
+  responsable    String?
+  centroCosto    String?
+
+  // — Estado y financiero —
+  estadoFisico     EstadoFisico @default(BUENO)
+  fechaAdquisicion DateTime?
+  valorLibros      Decimal?    @db.Decimal(14, 2)
+  proveedor        String?
+  vidaUtilMeses    Int?
+
+  /// Valores de los CampoPersonalizado del cliente (control DB), como {[id]: valor}.
+  camposPersonalizados Json?
+
+  registros      RegistroAuditoria[]
+  deletedAt      DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([codigoNuevo])
+}
+
+/// auditorId referencia un Usuario que vive en la control DB (otra base de datos
+/// física) — string plano, sin relación Prisma. Ver nota en el plan sobre cómo
+/// resolver el nombre del auditor en dos pasos (batch fetch a la control DB).
+model RegistroAuditoria {
+  id           String   @id @default(cuid())
+  proyectoId   String
+  proyecto     ProyectoAuditoria @relation(fields: [proyectoId], references: [id])
+  activoId     String?
+  activo       Activo?  @relation(fields: [activoId], references: [id])
+  auditorId    String
+
+  estado       EstadoAuditoria
+  estadoFisico EstadoFisico?
+  cambios      Json?
+  nota         String?
+  lat          Float?
+  lng          Float?
+  auditadoEn   DateTime
+  fotos        Foto[]
+
+  // — Sincronización offline —
+  clientId     String   @unique
+  syncedAt     DateTime @default(now())
+
+  createdAt    DateTime @default(now())
+
+  @@index([proyectoId, estado])
+  // Soporta el DISTINCT ON (activoId) ... ORDER BY activoId, auditadoEn DESC
+  // de ultimoRegistroPorActivo() sin un sort completo de la tabla.
+  @@index([proyectoId, activoId, auditadoEn(sort: Desc)])
+}
+
+model Foto {
+  id         String   @id @default(cuid())
+  registroId String
+  registro   RegistroAuditoria @relation(fields: [registroId], references: [id])
+  s3Key      String
+  etiqueta   String?
+  ancho      Int?
+  alto       Int?
+  bytes      Int?
+  orden      Int      @default(0)
+  createdAt  DateTime @default(now())
+}
+
+/// autorId referencia un Usuario que vive en la control DB — string plano, igual
+/// que RegistroAuditoria.auditorId.
+model LoteImportacion {
+  id                String   @id @default(cuid())
+  proyectoId        String
+  proyecto          ProyectoAuditoria @relation(fields: [proyectoId], references: [id])
+  archivoNombre     String
+  s3Key             String?
+  filasTotales      Int
+  filasCreadas      Int
+  filasActualizadas Int
+  filasError        Int
+  erroresJson       Json?
+  autorId           String
+  createdAt         DateTime @default(now())
+}

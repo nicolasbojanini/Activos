@@ -11,6 +11,7 @@ import { CategoriaActivo } from '@adn/shared';
 import { colors, radius, spacing } from '@adn/ui-tokens';
 import { listarUbicacionesLocal } from '../db/sync';
 import { encolarRegistro } from '../lib/registro-offline';
+import { useUbicacionActivaStore } from '../lib/ubicacion-activa-store';
 import { capturarFoto, eliminarFotoLocal, type FotoCapturada } from '../lib/fotos';
 import { useProyectoActual } from '../lib/useProyectoActual';
 import { HeaderBar } from '../components/HeaderBar';
@@ -39,7 +40,7 @@ const formSchema = z.object({
 type FormValues = z.infer<typeof formSchema>;
 
 export function NoRegistradoScreen({ route, navigation }: Props) {
-  const { codigoQR } = route.params;
+  const { codigo } = route.params;
   const { proyecto } = useProyectoActual();
   const [enviando, setEnviando] = useState(false);
   const [fotos, setFotos] = useState<FotoCapturada[]>([]);
@@ -64,7 +65,14 @@ export function NoRegistradoScreen({ route, navigation }: Props) {
     formState: { errors },
   } = useForm<FormValues>({
     resolver: zodResolver(formSchema),
-    defaultValues: { nombre: '', categoria: 'OTRO', ubicacionId: null, nota: '' },
+    // Preselecciona la ubicación activa de la sesión de escaneo, si hay una — solo un
+    // valor por defecto para el picker, no hay activo previo con el que comparar.
+    defaultValues: {
+      nombre: '',
+      categoria: 'OTRO',
+      ubicacionId: useUbicacionActivaStore.getState().ubicacionActiva?.id ?? null,
+      nota: '',
+    },
   });
 
   const onSubmit = async (values: FormValues) => {
@@ -77,7 +85,7 @@ export function NoRegistradoScreen({ route, navigation }: Props) {
         activoId: null,
         estado: 'NO_REGISTRADO',
         cambios: {
-          codigoQR: { antes: null, despues: codigoQR },
+          codigoNuevo: { antes: null, despues: codigo },
           nombre: { antes: null, despues: values.nombre },
           categoria: { antes: null, despues: values.categoria },
           ubicacionId: { antes: null, despues: values.ubicacionId },
@@ -91,7 +99,7 @@ export function NoRegistradoScreen({ route, navigation }: Props) {
           ancho,
           alto,
         })),
-        placaSnapshot: codigoQR,
+        codigoNuevoSnapshot: codigo,
         nombreSnapshot: values.nombre,
       });
       void queryClient.invalidateQueries({ queryKey: ['resumen-local'] });
@@ -100,9 +108,9 @@ export function NoRegistradoScreen({ route, navigation }: Props) {
       navigation.replace('Confirmacion', {
         resultado: 'NO_REGISTRADO',
         titulo: 'Activo nuevo registrado',
-        mensaje: 'Quedó registrado como hallazgo nuevo para que el coordinador lo revise.',
+        mensaje: 'Se creó en el inventario y ya queda auditado.',
         nombreActivo: values.nombre,
-        placa: codigoQR,
+        codigo,
       });
     } catch {
       Alert.alert('Error', 'No se pudo guardar el registro. Intenta de nuevo.');
@@ -112,12 +120,12 @@ export function NoRegistradoScreen({ route, navigation }: Props) {
 
   return (
     <View style={{ flex: 1, backgroundColor: '#fff' }}>
-      <HeaderBar title="Registrar activo no encontrado" subtitle={codigoQR} onBack={() => navigation.goBack()} />
+      <HeaderBar title="Registrar activo no encontrado" subtitle={codigo} onBack={() => navigation.goBack()} />
 
       <ScrollView contentContainerStyle={{ padding: spacing[4], paddingBottom: 120 }}>
         <Text style={styles.hint}>
-          No encontramos un activo con este código en la base de datos. Registra los datos mínimos para que quede
-          como hallazgo nuevo en la auditoría.
+          No encontramos un activo con este código en la base de datos. Registra los datos mínimos y quedará dado de
+          alta en el inventario de inmediato.
         </Text>
 
         <Text style={styles.sectionLabel}>Nombre / descripción</Text>

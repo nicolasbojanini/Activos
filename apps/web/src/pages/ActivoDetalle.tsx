@@ -1,10 +1,11 @@
 import { useNavigate, useParams } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { ChevronLeft } from 'lucide-react';
-import type { ActivoDetailOutput, RegistroHistorialOutput } from '@adn/shared';
+import type { ActivoDetailOutput, CampoPersonalizadoOutput, ConfiguracionCampoOutput, RegistroHistorialOutput } from '@adn/shared';
 import { Layout } from '../components/Layout';
 import { EstadoBadge } from '../components/Badge';
-import { getActivo, getHistorialActivo } from '../lib/services';
+import { useClienteStore } from '../lib/cliente-store';
+import { getActivo, getConfiguracionCampos, getHistorialActivo } from '../lib/services';
 
 const ESTADO_FISICO_LABEL: Record<string, string> = {
   BUENO: 'Bueno',
@@ -13,41 +14,58 @@ const ESTADO_FISICO_LABEL: Record<string, string> = {
   BAJA: 'De baja',
 };
 
-function ficha(activo: ActivoDetailOutput) {
-  return [
-    { label: 'Placa', valor: activo.placa },
-    { label: 'Código QR', valor: activo.codigoQR },
-    { label: 'Nombre / descripción', valor: activo.nombre },
-    { label: 'Categoría', valor: activo.categoria.replace('_', ' ') },
-    { label: 'Marca', valor: activo.marca ?? '—' },
-    { label: 'Modelo', valor: activo.modelo ?? '—' },
-    { label: 'N° de serie', valor: activo.serie ?? '—' },
-    { label: 'Ubicación', valor: activo.ubicacion?.sede ?? '—' },
-    { label: 'Responsable', valor: activo.responsable ?? '—' },
-    { label: 'Centro de costo', valor: activo.centroCosto ?? '—' },
-    { label: 'Estado físico', valor: ESTADO_FISICO_LABEL[activo.estadoFisico] },
-    {
-      label: 'Fecha de adquisición',
-      valor: activo.fechaAdquisicion ? new Date(activo.fechaAdquisicion).toLocaleDateString('es-CO') : '—',
-    },
-    {
-      label: 'Valor en libros',
-      valor: activo.valorLibros ? `$${Number(activo.valorLibros).toLocaleString('es-CO')}` : '—',
-    },
-    { label: 'Proveedor', valor: activo.proveedor ?? '—' },
-    { label: 'Vida útil', valor: activo.vidaUtilMeses ? `${activo.vidaUtilMeses} meses` : '—' },
-  ];
+const CAMPO_VALOR: Record<string, (activo: ActivoDetailOutput) => string> = {
+  codigoNuevo: (a) => a.codigoNuevo,
+  codigoAnterior: (a) => a.codigoAnterior ?? '—',
+  codigoControl: (a) => a.codigoControl ?? '—',
+  nombre: (a) => a.nombre ?? '—',
+  descripcion: (a) => a.descripcion ?? '—',
+  ubicacion: (a) => a.ubicacion?.sede ?? '—',
+  color: (a) => a.color ?? '—',
+  medidas: (a) => a.medidas ?? '—',
+  capacidad: (a) => a.capacidad ?? '—',
+  marca: (a) => a.marca ?? '—',
+  modelo: (a) => a.modelo ?? '—',
+  serie: (a) => a.serie ?? '—',
+  estadoFisico: (a) => ESTADO_FISICO_LABEL[a.estadoFisico] ?? a.estadoFisico,
+  responsable: (a) => a.responsable ?? '—',
+  centroCosto: (a) => a.centroCosto ?? '—',
+  categoria: (a) => a.categoria.replace('_', ' '),
+  fechaAdquisicion: (a) => (a.fechaAdquisicion ? new Date(a.fechaAdquisicion).toLocaleDateString('es-CO') : '—'),
+  valorLibros: (a) => (a.valorLibros ? `$${Number(a.valorLibros).toLocaleString('es-CO')}` : '—'),
+  proveedor: (a) => a.proveedor ?? '—',
+  vidaUtilMeses: (a) => (a.vidaUtilMeses ? `${a.vidaUtilMeses} meses` : '—'),
+};
+
+function ficha(activo: ActivoDetailOutput, campos: ConfiguracionCampoOutput[], camposPersonalizados: CampoPersonalizadoOutput[]) {
+  const filas = campos
+    .filter((c) => c.visible)
+    .map((c) => ({ label: c.etiqueta, valor: CAMPO_VALOR[c.campo]?.(activo) ?? '—' }));
+
+  const personalizados = camposPersonalizados
+    .filter((cp) => cp.visible)
+    .map((cp) => ({ label: cp.etiqueta, valor: activo.camposPersonalizados?.[cp.id] }))
+    .filter((f): f is { label: string; valor: string } => !!f.valor);
+
+  return [...filas, ...personalizados];
 }
 
 export function ActivoDetalle() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
 
+  const clienteId = useClienteStore((s) => s.clienteId);
+
   const { data: activo } = useQuery({ queryKey: ['activo-web', id], queryFn: () => getActivo(id!), enabled: !!id });
   const { data: historial } = useQuery({
     queryKey: ['historial-activo', id],
     queryFn: () => getHistorialActivo(id!),
     enabled: !!id,
+  });
+  const { data: configuracion } = useQuery({
+    queryKey: ['configuracion-campos', clienteId],
+    queryFn: () => getConfiguracionCampos(clienteId!),
+    enabled: !!clienteId,
   });
 
   const fotos = (historial ?? []).flatMap((registro) =>
@@ -85,7 +103,7 @@ export function ActivoDetalle() {
       </button>
 
       <header style={{ marginBottom: 24 }}>
-        <p className="eyebrow">AC/ {activo.placa}</p>
+        <p className="eyebrow">AC/ {activo.codigoNuevo}</p>
         <h1 style={{ fontSize: 22, marginBottom: 8 }}>{activo.nombre}</h1>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <EstadoBadge estado={activo.estado} />
@@ -114,7 +132,7 @@ export function ActivoDetalle() {
           }}
         >
           <h3 style={{ fontSize: 15, padding: '16px 20px 0' }}>Ficha</h3>
-          {ficha(activo).map((campo, i) => (
+          {ficha(activo, configuracion?.campos ?? [], configuracion?.camposPersonalizados ?? []).map((campo, i) => (
             <div
               key={campo.label}
               style={{

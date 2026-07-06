@@ -1,0 +1,98 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../../generated/control-client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("CONTROL_DATABASE_URL")
+}
+
+enum Rol {
+  ADN_ADMIN
+  COORDINADOR
+  AUDITOR
+}
+
+enum EstadoCliente {
+  PROVISIONANDO
+  ACTIVO
+  SUSPENDIDO
+}
+
+/// Personal de ADN (no de los clientes/pymes auditados). Un mismo usuario puede
+/// trabajar en proyectos de varios clientes distintos vía AsignacionProyecto.
+model Usuario {
+  id           String   @id @default(cuid())
+  nombre       String
+  email        String   @unique
+  passwordHash String
+  rol          Rol      @default(AUDITOR)
+  activo       Boolean  @default(true)
+  asignaciones AsignacionProyecto[]
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+/// Un cliente (pyme auditada) = una base de datos física separada (ver dbName).
+model Cliente {
+  id                   String        @id @default(cuid())
+  nombre               String
+  nit                  String?       @unique
+  dbName               String        @unique
+  dbHost               String        @default("localhost")
+  dbPort               Int           @default(5432)
+  estado               EstadoCliente @default(PROVISIONANDO)
+  asignaciones         AsignacionProyecto[]
+  configuracionCampos  ConfiguracionCampo[]
+  camposPersonalizados CampoPersonalizado[]
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+}
+
+/// Qué campos del catálogo de Activo se muestran/son obligatorios para este
+/// cliente. Sin fila = se usa el default del catálogo (ver
+/// packages/shared/src/campos-catalogo.ts) — no hace falta pre-sembrar nada
+/// al aprovisionar un cliente nuevo.
+model ConfiguracionCampo {
+  id        String  @id @default(cuid())
+  clienteId String
+  cliente   Cliente @relation(fields: [clienteId], references: [id])
+  campo     String
+  visible   Boolean @default(true)
+  requerido Boolean @default(false)
+  orden     Int     @default(0)
+
+  @@unique([clienteId, campo])
+}
+
+/// Campo adicional definido por el cliente creador (ADN_ADMIN) para casos
+/// especiales de ese cliente. El valor por activo se guarda en
+/// Activo.camposPersonalizados (tenant DB) como {[id]: valor}.
+model CampoPersonalizado {
+  id        String   @id @default(cuid())
+  clienteId String
+  cliente   Cliente  @relation(fields: [clienteId], references: [id])
+  etiqueta  String
+  visible   Boolean  @default(true)
+  requerido Boolean  @default(false)
+  orden     Int      @default(0)
+  createdAt DateTime @default(now())
+}
+
+/// Asigna un Usuario (auditor) a un proyecto específico de un cliente específico.
+/// proyectoId NO es una FK real: apunta a una fila que vive en la base de datos
+/// tenant del cliente (otra base de datos física) — Postgres no permite llaves
+/// foráneas entre bases de datos distintas. Se valida a nivel de aplicación.
+model AsignacionProyecto {
+  id         String   @id @default(cuid())
+  usuarioId  String
+  usuario    Usuario  @relation(fields: [usuarioId], references: [id])
+  clienteId  String
+  cliente    Cliente  @relation(fields: [clienteId], references: [id])
+  proyectoId String
+  createdAt  DateTime @default(now())
+
+  @@unique([usuarioId, clienteId, proyectoId])
+  @@index([usuarioId, clienteId])
+}

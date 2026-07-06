@@ -2,18 +2,21 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, FlatList, Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ChevronRight, CloudOff, QrCode, RefreshCw, Search } from 'lucide-react-native';
+import { ChevronRight, CloudOff, MapPin, QrCode, RefreshCw, Search } from 'lucide-react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { colors, radius, spacing } from '@adn/ui-tokens';
 import type { CategoriaActivo } from '@adn/shared';
-import { getProyectos } from '../lib/services';
+import { getProyecto } from '../lib/services';
 import { useAuthStore } from '../lib/auth-store';
+import { useUbicacionActivaStore } from '../lib/ubicacion-activa-store';
 import { CircularProgress } from '../components/CircularProgress';
 import { CategoriaIcon } from '../components/CategoriaIcon';
 import { EstadoBadge } from '../components/EstadoBadge';
+import { PrimaryButton } from '../components/PrimaryButton';
 import {
   calcularResumenLocal,
   descargarSesion,
+  guardarProyectoActivo,
   haySesionDescargada,
   listarActivosLocal,
   obtenerProyectoActivo,
@@ -29,6 +32,10 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Inicio'>;
 
 export function InicioScreen({ navigation }: Props) {
   const usuario = useAuthStore((s) => s.usuario);
+  const clienteId = useAuthStore((s) => s.clienteId);
+  const proyectoId = useAuthStore((s) => s.proyectoId);
+  const resolverAsignacionActual = useAuthStore((s) => s.resolverAsignacionActual);
+  const ubicacionActiva = useUbicacionActivaStore((s) => s.ubicacionActiva);
   const queryClient = useQueryClient();
   const [q, setQ] = useState('');
   const [sincronizando, setSincronizando] = useState(false);
@@ -54,29 +61,26 @@ export function InicioScreen({ navigation }: Props) {
 
   // Bootstrap: intenta refrescar el espejo local con red; si falla, sigue con lo que ya haya local.
   useEffect(() => {
+    if (!clienteId || !proyectoId) return; // sin asignación: el estado vacío se encarga
     async function bootstrap() {
       try {
-        const proyectos = await getProyectos();
-        const proyecto = proyectos[0];
-        if (proyecto) {
-          const yaHaySesion = await haySesionDescargada();
-          if (!yaHaySesion) {
-            await descargarSesion(proyecto);
-          } else {
-            const { guardarProyectoActivo } = await import('../db/sync');
-            await guardarProyectoActivo(proyecto);
-          }
-          void queryClient.invalidateQueries({ queryKey: ['proyecto-local'] });
-          void queryClient.invalidateQueries({ queryKey: ['resumen-local'] });
-          void queryClient.invalidateQueries({ queryKey: ['activos-local'] });
-          void queryClient.invalidateQueries({ queryKey: ['pendientes-sync'] });
+        const proyecto = await getProyecto(proyectoId!);
+        const yaHaySesion = await haySesionDescargada();
+        if (!yaHaySesion) {
+          await descargarSesion(proyecto);
+        } else {
+          await guardarProyectoActivo(proyecto);
         }
+        void queryClient.invalidateQueries({ queryKey: ['proyecto-local'] });
+        void queryClient.invalidateQueries({ queryKey: ['resumen-local'] });
+        void queryClient.invalidateQueries({ queryKey: ['activos-local'] });
+        void queryClient.invalidateQueries({ queryKey: ['pendientes-sync'] });
       } catch {
         // Sin red: seguimos con el espejo local ya descargado (si existe).
       }
     }
     void bootstrap();
-  }, [queryClient]);
+  }, [clienteId, proyectoId, queryClient]);
 
   const { data: proyecto } = useQuery({ queryKey: ['proyecto-local'], queryFn: obtenerProyectoActivo });
   const { data: resumen } = useQuery({ queryKey: ['resumen-local'], queryFn: calcularResumenLocal });
@@ -105,7 +109,7 @@ export function InicioScreen({ navigation }: Props) {
     <Pressable style={styles.row} onPress={() => navigation.navigate('Detalle', { activoId: item.id })}>
       <CategoriaIcon categoria={item.categoria as CategoriaActivo} />
       <View style={{ flex: 1, marginLeft: spacing[3] }}>
-        <Text style={styles.rowPlaca}>{item.placa}</Text>
+        <Text style={styles.rowPlaca}>{item.codigoNuevo}</Text>
         <Text style={styles.rowNombre}>{item.nombre}</Text>
         <Text style={styles.rowUbicacion}>{item.ubicacionSede ?? 'Sin ubicación'}</Text>
       </View>
@@ -116,6 +120,20 @@ export function InicioScreen({ navigation }: Props) {
       <ChevronRight size={18} color={colors.ink[400]} style={{ marginLeft: spacing[2] }} />
     </Pressable>
   );
+
+  if (!clienteId) {
+    return (
+      <View style={styles.vacioContainer}>
+        <Text style={styles.vacioTexto}>No tienes un proyecto asignado todavía. Contacta a tu coordinador.</Text>
+        <PrimaryButton label="Reintentar" onPress={() => void resolverAsignacionActual()} />
+        <PrimaryButton
+          label="Cerrar sesión"
+          variant="outline"
+          onPress={() => void useAuthStore.getState().clear()}
+        />
+      </View>
+    );
+  }
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.ink[50] }}>
@@ -153,7 +171,7 @@ export function InicioScreen({ navigation }: Props) {
             {pendientesSync > 0 ? `${pendientesSync} cambios sin sincronizar` : 'Todo sincronizado'}
           </Text>
         </View>
-        {pendientesSync > 0 && conectado && (
+        {pendientesSync > 0 && (
           <Pressable onPress={() => void ejecutarSincronizacion()} style={styles.syncButton} disabled={sincronizando}>
             {sincronizando ? (
               <ActivityIndicator size="small" color={colors.brand.blue} />
@@ -164,6 +182,13 @@ export function InicioScreen({ navigation }: Props) {
           </Pressable>
         )}
       </View>
+
+      {ubicacionActiva && (
+        <View style={styles.ubicacionActivaBar}>
+          <MapPin size={14} color={colors.brand.blue} />
+          <Text style={styles.ubicacionActivaTexto}>Ubicación activa: {ubicacionActiva.sede}</Text>
+        </View>
+      )}
 
       <View style={styles.kpiRow}>
         {kpis.map((kpi) => (
@@ -180,7 +205,7 @@ export function InicioScreen({ navigation }: Props) {
         <TextInput
           value={q}
           onChangeText={setQ}
-          placeholder="Buscar por placa, nombre o ubicación"
+          placeholder="Buscar por código, nombre o ubicación"
           style={styles.searchInput}
         />
       </View>
@@ -198,7 +223,15 @@ export function InicioScreen({ navigation }: Props) {
       />
 
       <SafeAreaView edges={['bottom']} style={styles.ctaWrap}>
-        <Pressable onPress={() => navigation.navigate('Escaneo')} style={styles.ctaButton}>
+        <Pressable
+          onPress={() => navigation.navigate('Escaneo', { modo: 'ubicacion' })}
+          style={[styles.ctaButton, styles.ctaButtonOutline]}
+        >
+          <MapPin size={20} color={colors.brand.blue} strokeWidth={1.8} />
+          <Text style={[styles.ctaLabel, styles.ctaLabelOutline]}>Escanear ubicación</Text>
+        </Pressable>
+        <View style={{ height: spacing[2] }} />
+        <Pressable onPress={() => navigation.navigate('Escaneo', { modo: 'activo' })} style={styles.ctaButton}>
           <QrCode size={20} color="#fff" strokeWidth={1.8} />
           <Text style={styles.ctaLabel}>Escanear código QR</Text>
         </Pressable>
@@ -208,6 +241,15 @@ export function InicioScreen({ navigation }: Props) {
 }
 
 const styles = StyleSheet.create({
+  vacioContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: spacing[6],
+    gap: spacing[4],
+    backgroundColor: colors.ink[50],
+  },
+  vacioTexto: { textAlign: 'center', fontSize: 14, color: colors.ink[700] },
   header: {
     backgroundColor: colors.brand.blue,
     paddingHorizontal: spacing[4],
@@ -247,12 +289,24 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: spacing[4],
-    marginTop: -spacing[3],
+    marginTop: spacing[3],
     marginBottom: spacing[2],
   },
   syncTexto: { fontSize: 12, color: colors.ink[500], fontWeight: '600' },
   syncButton: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   syncButtonLabel: { fontSize: 12, fontWeight: '600', color: colors.brand.blue },
+  ubicacionActivaBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[2],
+    marginHorizontal: spacing[4],
+    marginBottom: spacing[3],
+    backgroundColor: colors.blue[50],
+    borderRadius: radius.md,
+    paddingVertical: spacing[2],
+    paddingHorizontal: spacing[3],
+  },
+  ubicacionActivaTexto: { fontSize: 12, fontWeight: '600', color: colors.brand.blue },
   kpiRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -328,4 +382,12 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   ctaLabel: { color: '#fff', fontWeight: '600', fontSize: 14 },
+  ctaButtonOutline: {
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: colors.brand.blue,
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  ctaLabelOutline: { color: colors.brand.blue },
 });

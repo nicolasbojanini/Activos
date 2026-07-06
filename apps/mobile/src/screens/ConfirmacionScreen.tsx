@@ -17,7 +17,7 @@ const ICONOS = {
 } as const;
 
 export function ConfirmacionScreen({ route, navigation }: Props) {
-  const { resultado, titulo, mensaje, nombreActivo, placa } = route.params;
+  const { resultado, titulo, mensaje, nombreActivo, codigo } = route.params;
   const { Icon, color } = ICONOS[resultado];
 
   return (
@@ -31,7 +31,7 @@ export function ConfirmacionScreen({ route, navigation }: Props) {
 
         {nombreActivo && (
           <View style={styles.resumenCard}>
-            {placa && <Text style={styles.placa}>{placa}</Text>}
+            {codigo && <Text style={styles.placa}>{codigo}</Text>}
             <Text style={styles.nombre}>{nombreActivo}</Text>
             <EstadoBadge estado={resultado} />
           </View>

@@ -1,17 +1,21 @@
 import { eq, isNull, and } from 'drizzle-orm';
-import type { ActivoListItemOutput, EstadoAuditoria, PaginatedOutput, ProyectoOutput } from '@adn/shared';
+import type {
+  CampoPersonalizadoOutput,
+  ConfiguracionCampoOutput,
+  EstadoAuditoria,
+  ProyectoOutput,
+} from '@adn/shared';
 import { db } from './client';
 import { activosLocal, colaRegistros, metaSesion, ubicacionesLocal } from './schema';
-import { getActivos } from '../lib/services';
-import { apiFetch } from '../lib/api';
-
-interface UbicacionRemota {
-  id: string;
-  sede: string;
-  detalle: string | null;
-}
+import { getConfiguracionCampos, getSesionActivos, getUbicaciones } from '../lib/services';
 
 const CLAVE_PROYECTO_ACTIVO = 'proyectoActivo';
+const CLAVE_CONFIGURACION_CAMPOS = 'configuracionCampos';
+
+export interface ConfiguracionCamposLocal {
+  campos: ConfiguracionCampoOutput[];
+  camposPersonalizados: CampoPersonalizadoOutput[];
+}
 
 export async function guardarProyectoActivo(proyecto: ProyectoOutput) {
   await db
@@ -25,40 +29,54 @@ export async function obtenerProyectoActivo(): Promise<ProyectoOutput | null> {
   return fila ? (JSON.parse(fila.valor) as ProyectoOutput) : null;
 }
 
+async function guardarConfiguracionCampos(configuracion: ConfiguracionCamposLocal) {
+  await db
+    .insert(metaSesion)
+    .values({ clave: CLAVE_CONFIGURACION_CAMPOS, valor: JSON.stringify(configuracion) })
+    .onConflictDoUpdate({ target: metaSesion.clave, set: { valor: JSON.stringify(configuracion) } });
+}
+
+export async function obtenerConfiguracionCampos(): Promise<ConfiguracionCamposLocal | null> {
+  const [fila] = await db.select().from(metaSesion).where(eq(metaSesion.clave, CLAVE_CONFIGURACION_CAMPOS));
+  return fila ? (JSON.parse(fila.valor) as ConfiguracionCamposLocal) : null;
+}
+
 /**
  * Descarga el espejo local (activos + ubicaciones) del proyecto para poder
  * operar en bodega sin señal. Requiere red; se llama al abrir la sesión.
+ *
+ * Antes hacía un `findAll()` paginado (páginas de 100) y LUEGO un
+ * `getActivo()` individual por cada activo devuelto — con un inventario de
+ * miles de activos (Decameron: 7.398) eso son miles de requests HTTP en
+ * paralelo, que chocan contra el límite global de 100 req/min del backend y
+ * dejan la sesión atascada en "Cargando…" para siempre. `getSesionActivos`
+ * trae la ficha completa de todo el proyecto en una sola llamada.
  */
 export async function descargarSesion(proyecto: ProyectoOutput) {
   const proyectoId = proyecto.id;
-  const ubicaciones = await apiFetch<UbicacionRemota[]>('/ubicaciones');
-
-  const primeraPagina = await getActivos({ proyectoId, page: 1, pageSize: 100 });
-  const todasLasPaginas: PaginatedOutput<ActivoListItemOutput>['data'] = [...primeraPagina.data];
-  const totalPaginas = Math.max(1, Math.ceil(primeraPagina.total / 100));
-  for (let page = 2; page <= totalPaginas; page++) {
-    const siguiente = await getActivos({ proyectoId, page, pageSize: 100 });
-    todasLasPaginas.push(...siguiente.data);
-  }
-
-  // Necesitamos la ficha completa (13 campos), no solo el resumen de la lista.
-  const { getActivo } = await import('../lib/services');
-  const fichasCompletas = await Promise.all(todasLasPaginas.map((a) => getActivo(a.id)));
+  const ubicaciones = await getUbicaciones();
+  const configuracionCampos = await getConfiguracionCampos();
+  const fichasCompletas = await getSesionActivos(proyectoId);
 
   await db.delete(activosLocal);
   await db.delete(ubicacionesLocal);
 
   for (const u of ubicaciones) {
-    await db.insert(ubicacionesLocal).values({ id: u.id, sede: u.sede, detalle: u.detalle });
+    await db.insert(ubicacionesLocal).values({ id: u.id, codigo: u.codigo, sede: u.sede, detalle: u.detalle });
   }
 
   for (const activo of fichasCompletas) {
     await db.insert(activosLocal).values({
       id: activo.id,
-      placa: activo.placa,
-      codigoQR: activo.codigoQR,
+      codigoNuevo: activo.codigoNuevo,
+      codigoAnterior: activo.codigoAnterior,
+      codigoControl: activo.codigoControl,
       nombre: activo.nombre,
+      descripcion: activo.descripcion,
       categoria: activo.categoria,
+      color: activo.color,
+      medidas: activo.medidas,
+      capacidad: activo.capacidad,
       marca: activo.marca,
       modelo: activo.modelo,
       serie: activo.serie,
@@ -71,12 +89,14 @@ export async function descargarSesion(proyecto: ProyectoOutput) {
       valorLibros: activo.valorLibros,
       proveedor: activo.proveedor,
       vidaUtilMeses: activo.vidaUtilMeses,
+      camposPersonalizadosJson: activo.camposPersonalizados ? JSON.stringify(activo.camposPersonalizados) : null,
       estadoServidor: activo.estado,
       ultimoAuditorServidor: activo.ultimoAuditor,
     });
   }
 
   await guardarProyectoActivo(proyecto);
+  await guardarConfiguracionCampos(configuracionCampos);
 }
 
 export async function haySesionDescargada(): Promise<boolean> {
@@ -96,7 +116,7 @@ async function ultimaPendientePorActivo(activoId: string) {
 
 export interface ActivoLocalConEstado {
   id: string;
-  placa: string;
+  codigoNuevo: string;
   nombre: string;
   categoria: string;
   ubicacionSede: string | null;
@@ -121,7 +141,7 @@ export async function listarActivosLocal(q?: string): Promise<ActivoLocalConEsta
     .filter(
       (a) =>
         !filtro ||
-        a.placa.toLowerCase().includes(filtro) ||
+        a.codigoNuevo.toLowerCase().includes(filtro) ||
         a.nombre.toLowerCase().includes(filtro) ||
         (a.ubicacionSede ?? '').toLowerCase().includes(filtro),
     )
@@ -129,7 +149,7 @@ export async function listarActivosLocal(q?: string): Promise<ActivoLocalConEsta
       const pendiente = pendientePorActivo.get(a.id);
       return {
         id: a.id,
-        placa: a.placa,
+        codigoNuevo: a.codigoNuevo,
         nombre: a.nombre,
         categoria: a.categoria,
         ubicacionSede: a.ubicacionSede,
@@ -138,7 +158,7 @@ export async function listarActivosLocal(q?: string): Promise<ActivoLocalConEsta
         sinSincronizar: !!pendiente,
       };
     })
-    .sort((a, b) => a.placa.localeCompare(b.placa));
+    .sort((a, b) => a.codigoNuevo.localeCompare(b.codigoNuevo));
 }
 
 export async function obtenerActivoLocal(activoId: string) {
@@ -148,13 +168,26 @@ export async function obtenerActivoLocal(activoId: string) {
   return { activo, estadoEfectivo: (pendiente?.estado ?? activo.estadoServidor) as EstadoAuditoria };
 }
 
-export async function buscarActivoLocalPorQR(codigoQR: string) {
-  const [activo] = await db.select().from(activosLocal).where(eq(activosLocal.codigoQR, codigoQR));
+export async function buscarActivoLocalPorCodigo(codigo: string) {
+  const [activo] = await db.select().from(activosLocal).where(eq(activosLocal.codigoNuevo, codigo));
   return activo ?? null;
 }
 
 export async function listarUbicacionesLocal() {
   return db.select().from(ubicacionesLocal);
+}
+
+export async function buscarUbicacionLocalPorCodigo(codigo: string) {
+  const [ubicacion] = await db.select().from(ubicacionesLocal).where(eq(ubicacionesLocal.codigo, codigo));
+  return ubicacion ?? null;
+}
+
+/** Cachea localmente una ubicación creada al vuelo, para que futuras búsquedas offline la encuentren. */
+export async function guardarUbicacionLocal(ubicacion: { id: string; codigo: string; sede: string; detalle: string | null }) {
+  await db
+    .insert(ubicacionesLocal)
+    .values(ubicacion)
+    .onConflictDoUpdate({ target: ubicacionesLocal.id, set: ubicacion });
 }
 
 export interface ResumenLocal {

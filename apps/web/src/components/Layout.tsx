@@ -1,25 +1,36 @@
 import type { ReactNode } from 'react';
 import { NavLink, useNavigate } from 'react-router';
-import { ClipboardList, Package, FileBarChart, Users, LogOut } from 'lucide-react';
+import { ClipboardList, Package, FileBarChart, Users, Building2, LogOut } from 'lucide-react';
 import { useAuthStore } from '../lib/auth-store';
+import { useClienteStore } from '../lib/cliente-store';
 import logoAdnWhite from '../assets/logo-adn-white.png';
 
 const navItems = [
   { to: '/auditorias', label: 'Auditorías', icon: ClipboardList, enabled: true },
   { to: '/activos', label: 'Activos', icon: Package, enabled: false },
   { to: '/reportes', label: 'Reportes', icon: FileBarChart, enabled: true },
-  { to: '/auditores', label: 'Auditores', icon: Users, enabled: false },
+  { to: '/auditores', label: 'Auditores', icon: Users, enabled: true },
 ];
 
 export function Layout({ children }: { children: ReactNode }) {
   const usuario = useAuthStore((s) => s.usuario);
   const clear = useAuthStore((s) => s.clear);
   const navigate = useNavigate();
+  const clienteId = useClienteStore((s) => s.clienteId);
+  const clientes = useClienteStore((s) => s.clientes);
+  const setClienteId = useClienteStore((s) => s.setClienteId);
 
   const handleLogout = () => {
     clear();
     navigate('/login', { replace: true });
   };
+
+  const items = [
+    ...navItems,
+    ...(usuario?.rol === 'ADN_ADMIN'
+      ? [{ to: '/clientes', label: 'Clientes', icon: Building2, enabled: true }]
+      : []),
+  ];
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh' }}>
@@ -34,10 +45,33 @@ export function Layout({ children }: { children: ReactNode }) {
           flexShrink: 0,
         }}
       >
-        <img src={logoAdnWhite} alt="adn" style={{ height: 24, objectFit: 'contain', marginBottom: 40, marginLeft: 8 }} />
+        <img src={logoAdnWhite} alt="adn" style={{ height: 24, objectFit: 'contain', marginBottom: 20, marginLeft: 8 }} />
+
+        {clientes.length > 0 && (
+          <select
+            value={clienteId ?? ''}
+            onChange={(e) => setClienteId(e.target.value)}
+            style={{
+              marginBottom: 20,
+              padding: '8px 10px',
+              borderRadius: 'var(--adn-radius-md)',
+              border: '1px solid rgba(255,255,255,0.2)',
+              background: 'rgba(255,255,255,0.08)',
+              color: '#fff',
+              fontSize: 12,
+              fontWeight: 600,
+            }}
+          >
+            {clientes.map((c) => (
+              <option key={c.id} value={c.id} style={{ color: '#000' }}>
+                {c.nombre}
+              </option>
+            ))}
+          </select>
+        )}
 
         <nav style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
-          {navItems.map(({ to, label, icon: Icon, enabled }) =>
+          {items.map(({ to, label, icon: Icon, enabled }) =>
             enabled ? (
               <NavLink
                 key={to}

@@ -6,6 +6,7 @@ import { EscaneoScreen } from '../screens/EscaneoScreen';
 import { DetalleScreen } from '../screens/DetalleScreen';
 import { ActualizarScreen } from '../screens/ActualizarScreen';
 import { NoRegistradoScreen } from '../screens/NoRegistradoScreen';
+import { UbicacionNoRegistradaScreen } from '../screens/UbicacionNoRegistradaScreen';
 import { ConfirmacionScreen } from '../screens/ConfirmacionScreen';
 import type { RootStackParamList } from './types';
 
@@ -25,6 +26,7 @@ export function RootNavigator() {
           <Stack.Screen name="Detalle" component={DetalleScreen} />
           <Stack.Screen name="Actualizar" component={ActualizarScreen} />
           <Stack.Screen name="NoRegistrado" component={NoRegistradoScreen} />
+          <Stack.Screen name="UbicacionNoRegistrada" component={UbicacionNoRegistradaScreen} />
           <Stack.Screen name="Confirmacion" component={ConfirmacionScreen} />
         </>
       )}

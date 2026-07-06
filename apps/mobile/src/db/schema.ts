@@ -3,10 +3,15 @@ import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 /** Espejo local de solo lectura de los activos del proyecto (descargado al iniciar sesión). */
 export const activosLocal = sqliteTable('activos_local', {
   id: text('id').primaryKey(),
-  placa: text('placa').notNull(),
-  codigoQR: text('codigo_qr').notNull(),
+  codigoNuevo: text('codigo_nuevo').notNull(),
+  codigoAnterior: text('codigo_anterior'),
+  codigoControl: text('codigo_control'),
   nombre: text('nombre').notNull(),
+  descripcion: text('descripcion'),
   categoria: text('categoria').notNull(),
+  color: text('color'),
+  medidas: text('medidas'),
+  capacidad: text('capacidad'),
   marca: text('marca'),
   modelo: text('modelo'),
   serie: text('serie'),
@@ -19,6 +24,8 @@ export const activosLocal = sqliteTable('activos_local', {
   valorLibros: text('valor_libros'),
   proveedor: text('proveedor'),
   vidaUtilMeses: integer('vida_util_meses'),
+  /** JSON de {[campoPersonalizadoId]: valor}, espejo de Activo.camposPersonalizados. */
+  camposPersonalizadosJson: text('campos_personalizados_json'),
   estadoServidor: text('estado_servidor').notNull(),
   ultimoAuditorServidor: text('ultimo_auditor_servidor'),
 });
@@ -26,6 +33,7 @@ export const activosLocal = sqliteTable('activos_local', {
 /** Espejo local de sedes/ubicaciones de la organización. */
 export const ubicacionesLocal = sqliteTable('ubicaciones_local', {
   id: text('id').primaryKey(),
+  codigo: text('codigo').notNull(),
   sede: text('sede').notNull(),
   detalle: text('detalle'),
 });
@@ -40,7 +48,7 @@ export const colaRegistros = sqliteTable('cola_registros', {
   clientId: text('client_id').primaryKey(),
   proyectoId: text('proyecto_id').notNull(),
   activoId: text('activo_id'),
-  placaSnapshot: text('placa_snapshot'),
+  codigoNuevoSnapshot: text('codigo_nuevo_snapshot'),
   nombreSnapshot: text('nombre_snapshot'),
   estado: text('estado').notNull(),
   estadoFisico: text('estado_fisico'),

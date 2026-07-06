@@ -1,22 +1,31 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
 import { Search, Upload } from 'lucide-react';
 import type { ActivoListItemOutput } from '@adn/shared';
 import { Layout } from '../components/Layout';
 import { EstadoBadge } from '../components/Badge';
-import { getActivos, getProyectos, getResumenProyecto } from '../lib/services';
+import { ApiError } from '../lib/api';
+import { crearProyecto, getActivos, getProyectos, getResumenProyecto } from '../lib/services';
 
 const PAGE_SIZE = 10;
 
 export function Auditorias() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [q, setQ] = useState('');
   const [page, setPage] = useState(1);
+  const [nombreProyecto, setNombreProyecto] = useState('');
+  const [fechaCorte, setFechaCorte] = useState('');
 
-  const { data: proyectos } = useQuery({ queryKey: ['proyectos'], queryFn: getProyectos });
+  const { data: proyectos, isLoading: proyectosLoading } = useQuery({ queryKey: ['proyectos'], queryFn: getProyectos });
   const proyecto = proyectos?.[0];
+
+  const crearProyectoMutation = useMutation({
+    mutationFn: () => crearProyecto({ nombre: nombreProyecto, fechaCorte: new Date(fechaCorte) }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['proyectos'] }),
+  });
 
   const { data: resumen } = useQuery({
     queryKey: ['resumen', proyecto?.id],
@@ -34,8 +43,8 @@ export function Auditorias() {
   const columns = useMemo<ColumnDef<ActivoListItemOutput>[]>(
     () => [
       {
-        header: 'Placa',
-        accessorKey: 'placa',
+        header: 'Código',
+        accessorKey: 'codigoNuevo',
         cell: (info) => (
           <span style={{ fontFamily: 'ui-monospace, monospace', color: 'var(--adn-blue)', fontWeight: 600 }}>
             {info.getValue<string>()}
@@ -76,9 +85,73 @@ export function Auditorias() {
   const totalPages = activos ? Math.max(1, Math.ceil(activos.total / PAGE_SIZE)) : 1;
 
   if (!proyecto) {
+    if (proyectosLoading) {
+      return (
+        <Layout>
+          <p>Cargando proyecto…</p>
+        </Layout>
+      );
+    }
+
     return (
       <Layout>
-        <p>Cargando proyecto…</p>
+        <header style={{ marginBottom: 24 }}>
+          <p className="eyebrow">AU/</p>
+          <h1 style={{ fontSize: 24 }}>Crear el primer proyecto de este cliente</h1>
+          <p style={{ color: 'var(--adn-ink-500)', fontSize: 13, margin: '4px 0 0' }}>
+            Este cliente todavía no tiene ningún proyecto de auditoría. Crea uno para poder importar el inventario
+            y empezar a auditar.
+          </p>
+        </header>
+
+        <form
+          onSubmit={(e: FormEvent) => {
+            e.preventDefault();
+            crearProyectoMutation.mutate();
+          }}
+          style={{
+            background: '#fff',
+            border: '1px solid var(--adn-ink-200)',
+            borderRadius: 'var(--adn-radius-lg)',
+            padding: 20,
+            display: 'grid',
+            gridTemplateColumns: '1fr 220px auto',
+            gap: 12,
+            alignItems: 'end',
+            maxWidth: 720,
+          }}
+        >
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, fontWeight: 600 }}>
+            Nombre del proyecto
+            <input
+              required
+              value={nombreProyecto}
+              onChange={(e) => setNombreProyecto(e.target.value)}
+              placeholder="Ej. Inventario 2026"
+              style={inputStyle}
+            />
+          </label>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, fontWeight: 600 }}>
+            Fecha de corte
+            <input
+              required
+              type="date"
+              value={fechaCorte}
+              onChange={(e) => setFechaCorte(e.target.value)}
+              style={inputStyle}
+            />
+          </label>
+          <button type="submit" disabled={crearProyectoMutation.isPending} style={primaryButtonStyle}>
+            {crearProyectoMutation.isPending ? 'Creando…' : 'Crear proyecto'}
+          </button>
+          {crearProyectoMutation.isError && (
+            <p style={{ gridColumn: '1 / -1', fontSize: 12, color: 'var(--adn-danger)', margin: 0 }}>
+              {crearProyectoMutation.error instanceof ApiError
+                ? crearProyectoMutation.error.message
+                : 'No se pudo crear el proyecto'}
+            </p>
+          )}
+        </form>
       </Layout>
     );
   }
@@ -179,6 +252,7 @@ export function Auditorias() {
             <span>Auditados: {resumen?.auditados ?? 0}</span>
             <span>Diferencias: {resumen?.diferencias ?? 0}</span>
             <span>Faltantes: {resumen?.faltantes ?? 0}</span>
+            <span>Activos nuevos: {resumen?.noRegistrados ?? 0}</span>
             <span>Pendientes: {resumen?.pendientes ?? 0}</span>
           </div>
         </div>
@@ -220,7 +294,7 @@ export function Auditorias() {
                 setQ(e.target.value);
                 setPage(1);
               }}
-              placeholder="Buscar por placa o nombre…"
+              placeholder="Buscar por código o nombre…"
               style={{ border: 'none', outline: 'none', fontSize: 13, width: '100%' }}
             />
           </div>
@@ -321,6 +395,24 @@ const pagerButtonStyle = {
   borderRadius: 'var(--adn-radius-md)',
   padding: '6px 12px',
   fontSize: 12,
+  fontWeight: 600,
+  cursor: 'pointer',
+} as const;
+
+const inputStyle = {
+  padding: '8px 10px',
+  borderRadius: 'var(--adn-radius-sm)',
+  border: '1px solid var(--adn-ink-200)',
+  fontSize: 13,
+} as const;
+
+const primaryButtonStyle = {
+  background: 'var(--adn-blue)',
+  color: '#fff',
+  border: 'none',
+  borderRadius: 'var(--adn-radius-md)',
+  padding: '10px 16px',
+  fontSize: 13,
   fontWeight: 600,
   cursor: 'pointer',
 } as const;

@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
-import { Download, FileSpreadsheet, FileText, Table } from 'lucide-react';
+import { Download, FileSpreadsheet, FileText, Images, Table } from 'lucide-react';
 import { colors } from '@adn/ui-tokens';
 import { Layout } from '../components/Layout';
-import { getProyectos, getResumenProyecto } from '../lib/services';
+import { fotosZipDescargaUrl, getProyectos, getResumenProyecto, reporteDescargaUrl } from '../lib/services';
 import { descargarArchivo } from '../lib/api';
 
 const FORMATOS = [
@@ -29,7 +29,17 @@ export function Reportes() {
     if (!proyecto) return;
     setDescargando(formato);
     try {
-      await descargarArchivo(`/proyectos/${proyecto.id}/reporte?formato=${formato}`);
+      await descargarArchivo(reporteDescargaUrl(proyecto.id, formato));
+    } finally {
+      setDescargando(null);
+    }
+  };
+
+  const handleDescargarFotos = async () => {
+    if (!proyecto) return;
+    setDescargando('fotos');
+    try {
+      await descargarArchivo(fotosZipDescargaUrl(proyecto.id));
     } finally {
       setDescargando(null);
     }
@@ -158,6 +168,29 @@ export function Reportes() {
                 <Download size={14} strokeWidth={1.8} color="var(--adn-ink-400)" />
               </button>
             ))}
+            <button
+              onClick={() => void handleDescargarFotos()}
+              disabled={descargando !== null}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                border: '1px solid var(--adn-ink-200)',
+                borderRadius: 'var(--adn-radius-md)',
+                padding: '10px 16px',
+                background: '#fff',
+                cursor: descargando ? 'default' : 'pointer',
+                fontSize: 13,
+                fontWeight: 600,
+                opacity: descargando && descargando !== 'fotos' ? 0.5 : 1,
+              }}
+            >
+              <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <Images size={16} strokeWidth={1.8} color="var(--adn-blue)" />
+                Fotos de los activos (.zip)
+              </span>
+              <Download size={14} strokeWidth={1.8} color="var(--adn-ink-400)" />
+            </button>
           </div>
         </div>
       </div>
