@@ -58,8 +58,8 @@ model Activo {
   id             String   @id @default(cuid())
 
   // — Identificación —
-  codigoNuevo    String
-  codigoAnterior String?
+  codigoAnterior String
+  codigoNuevo    String?
   codigoControl  String?
   nombre         String
   descripcion    String?
@@ -94,7 +94,7 @@ model Activo {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  @@unique([codigoNuevo])
+  @@unique([codigoAnterior])
 }
 
 /// auditorId referencia un Usuario que vive en la control DB (otra base de datos

@@ -1,4 +1,4 @@
-import { eq, isNull, and } from 'drizzle-orm';
+import { eq, isNull, and, or } from 'drizzle-orm';
 import type {
   CampoPersonalizadoOutput,
   ConfiguracionCampoOutput,
@@ -89,7 +89,10 @@ export async function descargarSesion(proyecto: ProyectoOutput) {
       tx.insert(activosLocal)
         .values({
           id: activo.id,
-          codigoNuevo: activo.codigoNuevo,
+          // '' en vez de null: en instalaciones viejas la columna codigo_nuevo
+          // todavía tiene NOT NULL (SQLite no permite quitarlo con ALTER
+          // TABLE) — nunca insertar null acá evita romper ese constraint.
+          codigoNuevo: activo.codigoNuevo ?? '',
           codigoAnterior: activo.codigoAnterior,
           codigoControl: activo.codigoControl,
           nombre: activo.nombre,
@@ -139,7 +142,7 @@ async function ultimaPendientePorActivo(activoId: string) {
 
 export interface ActivoLocalConEstado {
   id: string;
-  codigoNuevo: string;
+  codigoAnterior: string;
   nombre: string;
   categoria: string;
   ubicacionSede: string | null;
@@ -164,7 +167,8 @@ export async function listarActivosLocal(q?: string): Promise<ActivoLocalConEsta
     .filter(
       (a) =>
         !filtro ||
-        a.codigoNuevo.toLowerCase().includes(filtro) ||
+        a.codigoAnterior.toLowerCase().includes(filtro) ||
+        (a.codigoNuevo ?? '').toLowerCase().includes(filtro) ||
         a.nombre.toLowerCase().includes(filtro) ||
         (a.ubicacionSede ?? '').toLowerCase().includes(filtro),
     )
@@ -172,7 +176,7 @@ export async function listarActivosLocal(q?: string): Promise<ActivoLocalConEsta
       const pendiente = pendientePorActivo.get(a.id);
       return {
         id: a.id,
-        codigoNuevo: a.codigoNuevo,
+        codigoAnterior: a.codigoAnterior,
         nombre: a.nombre,
         categoria: a.categoria,
         ubicacionSede: a.ubicacionSede,
@@ -181,7 +185,7 @@ export async function listarActivosLocal(q?: string): Promise<ActivoLocalConEsta
         sinSincronizar: !!pendiente,
       };
     })
-    .sort((a, b) => a.codigoNuevo.localeCompare(b.codigoNuevo));
+    .sort((a, b) => a.codigoAnterior.localeCompare(b.codigoAnterior));
 }
 
 export async function obtenerActivoLocal(activoId: string) {
@@ -191,8 +195,12 @@ export async function obtenerActivoLocal(activoId: string) {
   return { activo, estadoEfectivo: (pendiente?.estado ?? activo.estadoServidor) as EstadoAuditoria };
 }
 
+/** El código físico pegado en el activo puede ser el anterior o el nuevo — busca por cualquiera de los dos. */
 export async function buscarActivoLocalPorCodigo(codigo: string) {
-  const [activo] = await db.select().from(activosLocal).where(eq(activosLocal.codigoNuevo, codigo));
+  const [activo] = await db
+    .select()
+    .from(activosLocal)
+    .where(or(eq(activosLocal.codigoAnterior, codigo), eq(activosLocal.codigoNuevo, codigo)));
   return activo ?? null;
 }
 

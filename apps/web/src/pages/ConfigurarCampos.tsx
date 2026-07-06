@@ -72,7 +72,7 @@ export function ConfigurarCampos() {
     setCampos((prev) =>
       prev?.map((c) => {
         if (c.campo !== campo) return c;
-        if (campo === CAMPO_IDENTIDAD) return c; // codigoNuevo no se puede ocultar ni volver opcional
+        if (campo === CAMPO_IDENTIDAD) return c; // codigoAnterior no se puede ocultar ni volver opcional
         const siguiente = { ...c, [key]: !c[key] };
         // si se oculta, no tiene sentido dejarlo marcado como obligatorio
         if (key === 'visible' && !siguiente.visible) siguiente.requerido = false;

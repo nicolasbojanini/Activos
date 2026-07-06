@@ -22,9 +22,13 @@ export interface UploadEntry {
   s3Key: string;
 }
 
-/** Campos de texto opcionales del catálogo, aplicables tal cual desde `cambios`. */
+/**
+ * Campos de texto opcionales del catálogo, aplicables tal cual desde
+ * `cambios`. `codigoAnterior` NO está acá a propósito — es la llave de
+ * identidad del activo (@@unique), no se cambia por esta vía genérica.
+ */
 const CAMPOS_TEXTO_OPCIONAL = [
-  'codigoAnterior',
+  'codigoNuevo',
   'codigoControl',
   'descripcion',
   'color',
@@ -208,44 +212,47 @@ export class RegistrosService {
   }
 
   /**
-   * Da de alta el Activo detrás de un hallazgo NO_REGISTRADO, tomando codigoNuevo/
+   * Da de alta el Activo detrás de un hallazgo NO_REGISTRADO, tomando codigoAnterior/
    * nombre/categoria de `cambios` (siempre presentes: los llena NoRegistradoScreen
-   * en mobile). Si el código ya existe — otro auditor registró el mismo hallazgo
-   * en paralelo, o alguien lo escaneó dos veces antes de que el espejo local se
-   * refrescara — reutiliza el Activo existente en vez de fallar por duplicado.
+   * en mobile, con el código físico que el auditor escaneó). Si el código ya existe
+   * — otro auditor registró el mismo hallazgo en paralelo, o alguien lo escaneó dos
+   * veces antes de que el espejo local se refrescara — reutiliza el Activo existente
+   * en vez de fallar por duplicado.
    */
   private async crearActivoDesdeHallazgo(
     tx: Prisma.TransactionClient,
     dto: RegistroAuditoriaInput,
   ): Promise<Activo> {
     const cambios = dto.cambios ?? {};
-    const codigoNuevo = (
-      cambios.codigoNuevo as { despues?: unknown } | undefined
+    const codigoAnterior = (
+      cambios.codigoAnterior as { despues?: unknown } | undefined
     )?.despues as string | undefined;
     const nombre = (cambios.nombre as { despues?: unknown } | undefined)
       ?.despues as string | undefined;
     const categoria = (cambios.categoria as { despues?: unknown } | undefined)
       ?.despues as CategoriaActivo | undefined;
 
-    if (!codigoNuevo || !nombre || !categoria) {
+    if (!codigoAnterior || !nombre || !categoria) {
       throw new BadRequestException(
-        'codigoNuevo, nombre y categoria son obligatorios para registrar un activo nuevo',
+        'codigoAnterior, nombre y categoria son obligatorios para registrar un activo nuevo',
       );
     }
 
-    const existente = await tx.activo.findFirst({ where: { codigoNuevo } });
+    const existente = await tx.activo.findFirst({
+      where: { codigoAnterior },
+    });
     if (existente) return existente;
 
     try {
       return await tx.activo.create({
-        data: { codigoNuevo, nombre, categoria },
+        data: { codigoAnterior, nombre, categoria },
       });
     } catch (err) {
       if (
         err instanceof Prisma.PrismaClientKnownRequestError &&
         err.code === 'P2002'
       ) {
-        return tx.activo.findFirstOrThrow({ where: { codigoNuevo } });
+        return tx.activo.findFirstOrThrow({ where: { codigoAnterior } });
       }
       throw err;
     }

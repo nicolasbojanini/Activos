@@ -44,7 +44,7 @@ export function Auditorias() {
     () => [
       {
         header: 'Código',
-        accessorKey: 'codigoNuevo',
+        accessorKey: 'codigoAnterior',
         cell: (info) => (
           <span style={{ fontFamily: 'ui-monospace, monospace', color: 'var(--adn-blue)', fontWeight: 600 }}>
             {info.getValue<string>()}

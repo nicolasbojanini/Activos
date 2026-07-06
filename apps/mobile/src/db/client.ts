@@ -16,8 +16,8 @@ export function inicializarBaseLocal() {
   sqlite.execSync(`
     CREATE TABLE IF NOT EXISTS activos_local (
       id TEXT PRIMARY KEY,
-      codigo_nuevo TEXT NOT NULL,
-      codigo_anterior TEXT,
+      codigo_nuevo TEXT,
+      codigo_anterior TEXT NOT NULL,
       codigo_control TEXT,
       nombre TEXT NOT NULL,
       descripcion TEXT,
@@ -53,7 +53,7 @@ export function inicializarBaseLocal() {
       client_id TEXT PRIMARY KEY,
       proyecto_id TEXT NOT NULL,
       activo_id TEXT,
-      codigo_nuevo_snapshot TEXT,
+      codigo_anterior_snapshot TEXT,
       nombre_snapshot TEXT,
       estado TEXT NOT NULL,
       estado_fisico TEXT,
@@ -73,6 +73,7 @@ export function inicializarBaseLocal() {
     );
 
     CREATE INDEX IF NOT EXISTS idx_activos_local_codigo_nuevo ON activos_local (codigo_nuevo);
+    CREATE INDEX IF NOT EXISTS idx_activos_local_codigo_anterior ON activos_local (codigo_anterior);
     CREATE INDEX IF NOT EXISTS idx_cola_registros_synced ON cola_registros (synced);
   `);
 
@@ -81,6 +82,11 @@ export function inicializarBaseLocal() {
   // agregan con ALTER TABLE en vez de volver a bumpear el nombre del archivo,
   // porque eso borraría cola_registros y con ella cualquier auditoría
   // capturada offline que el dispositivo todavía no haya sincronizado.
+  //
+  // codigo_nuevo sigue siendo NOT NULL en esas instalaciones viejas (SQLite no
+  // permite quitar un NOT NULL con ALTER TABLE) — como este espejo se
+  // descarga entero de nuevo en cada sesión, el insert en sync.ts nunca le
+  // manda null a esa columna, así que la restricción vieja queda inofensiva.
   for (const columna of [
     'codigo_anterior TEXT',
     'codigo_control TEXT',
@@ -95,5 +101,11 @@ export function inicializarBaseLocal() {
     } catch {
       // La columna ya existe (instalación nueva que la creó en el CREATE TABLE de arriba).
     }
+  }
+
+  try {
+    sqlite.execSync(`ALTER TABLE cola_registros ADD COLUMN codigo_anterior_snapshot TEXT;`);
+  } catch {
+    // La columna ya existe (instalación nueva que la creó en el CREATE TABLE de arriba).
   }
 }

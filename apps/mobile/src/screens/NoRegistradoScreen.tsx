@@ -85,7 +85,7 @@ export function NoRegistradoScreen({ route, navigation }: Props) {
         activoId: null,
         estado: 'NO_REGISTRADO',
         cambios: {
-          codigoNuevo: { antes: null, despues: codigo },
+          codigoAnterior: { antes: null, despues: codigo },
           nombre: { antes: null, despues: values.nombre },
           categoria: { antes: null, despues: values.categoria },
           ubicacionId: { antes: null, despues: values.ubicacionId },
@@ -99,7 +99,7 @@ export function NoRegistradoScreen({ route, navigation }: Props) {
           ancho,
           alto,
         })),
-        codigoNuevoSnapshot: codigo,
+        codigoAnteriorSnapshot: codigo,
         nombreSnapshot: values.nombre,
       });
       void queryClient.invalidateQueries({ queryKey: ['resumen-local'] });

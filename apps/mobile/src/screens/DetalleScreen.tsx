@@ -27,8 +27,8 @@ const ESTADO_FISICO_LABEL: Record<EstadoFisico, string> = {
 };
 
 const CAMPO_VALOR: Record<string, (activo: ActivoLocal) => string> = {
-  codigoNuevo: (a) => a.codigoNuevo,
-  codigoAnterior: (a) => a.codigoAnterior ?? '—',
+  codigoNuevo: (a) => a.codigoNuevo || '—',
+  codigoAnterior: (a) => a.codigoAnterior,
   codigoControl: (a) => a.codigoControl ?? '—',
   nombre: (a) => a.nombre,
   descripcion: (a) => a.descripcion ?? '—',
@@ -100,7 +100,7 @@ export function DetalleScreen({ route, navigation }: Props) {
         cambios: reubicacion ?? undefined,
         auditadoEn: new Date(),
         fotos: [],
-        codigoNuevoSnapshot: resultado.activo.codigoNuevo,
+        codigoAnteriorSnapshot: resultado.activo.codigoAnterior,
         nombreSnapshot: resultado.activo.nombre,
       });
       invalidarLocal();
@@ -117,7 +117,7 @@ export function DetalleScreen({ route, navigation }: Props) {
             ? 'El activo coincide con la ficha registrada.'
             : 'Se registró el activo como faltante en esta auditoría.',
         nombreActivo: resultado.activo.nombre,
-        codigo: resultado.activo.codigoNuevo,
+        codigo: resultado.activo.codigoAnterior,
       });
     } catch {
       Alert.alert('Error', 'No se pudo guardar el registro. Intenta de nuevo.');
@@ -146,7 +146,7 @@ export function DetalleScreen({ route, navigation }: Props) {
     <View style={{ flex: 1, backgroundColor: '#fff' }}>
       <HeaderBar
         title="Detalle del activo"
-        subtitle={activo.codigoNuevo}
+        subtitle={activo.codigoAnterior}
         onBack={() => navigation.goBack()}
         rightBadge={escaneado ? 'Escaneado' : undefined}
       />

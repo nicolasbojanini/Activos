@@ -3,8 +3,8 @@ import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 /** Espejo local de solo lectura de los activos del proyecto (descargado al iniciar sesión). */
 export const activosLocal = sqliteTable('activos_local', {
   id: text('id').primaryKey(),
-  codigoNuevo: text('codigo_nuevo').notNull(),
-  codigoAnterior: text('codigo_anterior'),
+  codigoNuevo: text('codigo_nuevo'),
+  codigoAnterior: text('codigo_anterior').notNull(),
   codigoControl: text('codigo_control'),
   nombre: text('nombre').notNull(),
   descripcion: text('descripcion'),
@@ -48,7 +48,7 @@ export const colaRegistros = sqliteTable('cola_registros', {
   clientId: text('client_id').primaryKey(),
   proyectoId: text('proyecto_id').notNull(),
   activoId: text('activo_id'),
-  codigoNuevoSnapshot: text('codigo_nuevo_snapshot'),
+  codigoAnteriorSnapshot: text('codigo_anterior_snapshot'),
   nombreSnapshot: text('nombre_snapshot'),
   estado: text('estado').notNull(),
   estadoFisico: text('estado_fisico'),

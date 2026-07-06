@@ -21,7 +21,8 @@ import { S3Service } from '../files/s3.service';
 
 interface ActivoListRow {
   id: string;
-  codigoNuevo: string;
+  codigoAnterior: string;
+  codigoNuevo: string | null;
   nombre: string;
   categoria: CategoriaActivoDb;
   ubicacionId: string | null;
@@ -34,8 +35,8 @@ interface ActivoListRow {
 
 interface ActivoSesionRow {
   id: string;
-  codigoNuevo: string;
-  codigoAnterior: string | null;
+  codigoAnterior: string;
+  codigoNuevo: string | null;
   codigoControl: string | null;
   nombre: string;
   descripcion: string | null;
@@ -92,7 +93,7 @@ export class ActivosService {
     if (query.q) {
       const contiene = `%${query.q}%`;
       condiciones.push(
-        Prisma.sql`(a."codigoNuevo" ILIKE ${contiene} OR a.nombre ILIKE ${contiene})`,
+        Prisma.sql`(a."codigoAnterior" ILIKE ${contiene} OR a."codigoNuevo" ILIKE ${contiene} OR a.nombre ILIKE ${contiene})`,
       );
     }
     if (query.ubicacion) {
@@ -130,7 +131,7 @@ export class ActivosService {
       tenantPrisma.$queryRaw<ActivoListRow[]>`
         ${ultimoCte}
         SELECT
-          a.id, a."codigoNuevo", a.nombre, a.categoria,
+          a.id, a."codigoAnterior", a."codigoNuevo", a.nombre, a.categoria,
           u.id AS "ubicacionId", u.codigo AS "ubicacionCodigo",
           u.sede AS "ubicacionSede", u.detalle AS "ubicacionDetalle",
           COALESCE(ultimo.estado, 'PENDIENTE') AS estado,
@@ -139,7 +140,7 @@ export class ActivosService {
         LEFT JOIN "Ubicacion" u ON u.id = a."ubicacionId"
         LEFT JOIN ultimo ON ultimo."activoId" = a.id
         WHERE ${whereSql}
-        ORDER BY a."codigoNuevo" ASC
+        ORDER BY a."codigoAnterior" ASC
         LIMIT ${query.pageSize} OFFSET ${(query.page - 1) * query.pageSize}
       `,
     ]);
@@ -152,6 +153,7 @@ export class ActivosService {
 
     const data: ActivoListItemOutput[] = filas.map((f) => ({
       id: f.id,
+      codigoAnterior: f.codigoAnterior,
       codigoNuevo: f.codigoNuevo,
       nombre: f.nombre,
       categoria: f.categoria,
@@ -211,7 +213,7 @@ export class ActivosService {
       LEFT JOIN "Ubicacion" u ON u.id = a."ubicacionId"
       LEFT JOIN ultimo ON ultimo."activoId" = a.id
       WHERE a."deletedAt" IS NULL
-      ORDER BY a."codigoNuevo" ASC
+      ORDER BY a."codigoAnterior" ASC
     `;
 
     const nombresPorId = await resolverNombresAuditores(
@@ -277,8 +279,14 @@ export class ActivosService {
     tenantPrisma: TenantPrismaClient,
     codigo: string,
   ): Promise<ActivoDetailOutput> {
+    // El auditor puede escanear el código que tenga físicamente puesto el
+    // activo hoy — el anterior (si nunca se reemplazó la placa) o el nuevo
+    // (si ya se la cambiaron pero es la misma llave de identidad).
     const activo = await tenantPrisma.activo.findFirst({
-      where: { codigoNuevo: codigo, deletedAt: null },
+      where: {
+        OR: [{ codigoAnterior: codigo }, { codigoNuevo: codigo }],
+        deletedAt: null,
+      },
       include: { ubicacion: true },
     });
     if (!activo) {

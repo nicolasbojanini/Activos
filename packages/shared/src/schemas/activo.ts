@@ -2,16 +2,18 @@ import { z } from 'zod';
 import { CategoriaActivo, EstadoAuditoria, EstadoFisico } from '../enums';
 
 /**
- * `codigoNuevo` es el único campo estructuralmente obligatorio (es el
- * identificador único del activo). Todo lo demás es opcional a este nivel —
- * cuáles campos son realmente obligatorios para un cliente dado se valida
- * dinámicamente contra su ConfiguracionCampo (ver imports.service.ts).
+ * `codigoAnterior` es el único campo estructuralmente obligatorio (es el
+ * identificador único y estable del activo — `codigoNuevo` se reasigna
+ * durante la propia auditoría, así que no puede ser la llave). Todo lo demás
+ * es opcional a este nivel — cuáles campos son realmente obligatorios para
+ * un cliente dado se valida dinámicamente contra su ConfiguracionCampo
+ * (durante la auditoría, no al importar — ver imports.service.ts).
  */
 export const activoSchema = z.object({
   id: z.string().optional(),
 
-  codigoNuevo: z.string().min(1, 'El código nuevo es obligatorio'),
-  codigoAnterior: z.string().nullable().optional(),
+  codigoAnterior: z.string().min(1, 'El código anterior es obligatorio'),
+  codigoNuevo: z.string().nullable().optional(),
   codigoControl: z.string().nullable().optional(),
   nombre: z.string().nullable().optional(),
   descripcion: z.string().nullable().optional(),

@@ -28,9 +28,9 @@ function valorCampoActivo(
 ): string {
   switch (campo) {
     case 'codigoNuevo':
-      return activo.codigoNuevo;
+      return activo.codigoNuevo ?? '';
     case 'codigoAnterior':
-      return activo.codigoAnterior ?? '';
+      return activo.codigoAnterior;
     case 'codigoControl':
       return activo.codigoControl ?? '';
     case 'nombre':
@@ -86,7 +86,7 @@ interface FilaCambio {
 }
 
 interface FilaNoRegistrado {
-  'Código nuevo': string;
+  'Código anterior': string;
   Descripción: string;
   Categoría: string;
   Nota: string;
@@ -136,7 +136,7 @@ export class ReportesService {
   /**
    * ZIP con las fotos confirmadas del último registro de cada activo del
    * proyecto (activos sin fotos se omiten). Nombre de archivo:
-   * `{codigoNuevo}-{consecutivo}.jpg`, consecutivo = orden + 1 dentro de ese activo.
+   * `{codigoAnterior}-{consecutivo}.jpg`, consecutivo = orden + 1 dentro de ese activo.
    */
   async generarZipFotos(
     tenantPrisma: TenantPrismaClient,
@@ -153,7 +153,7 @@ export class ReportesService {
 
     const activos = await tenantPrisma.activo.findMany({
       where: { deletedAt: null, id: { in: [...ultimoPorActivo.keys()] } },
-      select: { id: true, codigoNuevo: true },
+      select: { id: true, codigoAnterior: true },
     });
 
     const registroIds = [...ultimoPorActivo.values()].map((r) => r.id);
@@ -180,7 +180,7 @@ export class ReportesService {
       for (const foto of fotosDelActivo) {
         const bytes = await this.s3.descargarObjeto(foto.s3Key);
         archive.append(bytes, {
-          name: `${activo.codigoNuevo}-${foto.orden + 1}.jpg`,
+          name: `${activo.codigoAnterior}-${foto.orden + 1}.jpg`,
         });
       }
     }
@@ -215,7 +215,7 @@ export class ReportesService {
     const activos = await tenantPrisma.activo.findMany({
       where: { deletedAt: null },
       include: { ubicacion: true },
-      orderBy: { codigoNuevo: 'asc' },
+      orderBy: { codigoAnterior: 'asc' },
     });
 
     const registrosNoRegistrados =
@@ -265,7 +265,7 @@ export class ReportesService {
       .map((activo) => ({ activo, registro: ultimoPorActivo.get(activo.id) }))
       .filter((r) => r.registro?.estado === 'DIFERENCIA')
       .map(({ activo, registro }) => ({
-        Código: activo.codigoNuevo,
+        Código: activo.codigoAnterior,
         Activo: activo.nombre,
         Cambios: formatearCambios(registro!.cambios),
         Nota: registro!.nota ?? '',
@@ -277,7 +277,7 @@ export class ReportesService {
       .map((activo) => ({ activo, registro: ultimoPorActivo.get(activo.id) }))
       .filter((r) => r.registro?.estado === 'FALTANTE')
       .map(({ activo, registro }) => ({
-        Código: activo.codigoNuevo,
+        Código: activo.codigoAnterior,
         Activo: activo.nombre,
         Cambios: '',
         Nota: registro!.nota ?? '',
@@ -292,9 +292,9 @@ export class ReportesService {
           { despues?: unknown }
         > | null;
         return {
-          'Código nuevo':
-            cambios?.codigoNuevo?.despues !== undefined
-              ? aTexto(cambios.codigoNuevo.despues)
+          'Código anterior':
+            cambios?.codigoAnterior?.despues !== undefined
+              ? aTexto(cambios.codigoAnterior.despues)
               : '',
           Descripción:
             cambios?.nombre?.despues !== undefined
@@ -442,7 +442,7 @@ export class ReportesService {
         doc.fontSize(10).text('Sin hallazgos nuevos.');
       } else {
         filasNoRegistrados.forEach((f) => {
-          doc.fontSize(10).text(`${f['Código nuevo']} — ${f.Descripción}`);
+          doc.fontSize(10).text(`${f['Código anterior']} — ${f.Descripción}`);
           doc
             .fontSize(9)
             .fillColor('#6A7585')

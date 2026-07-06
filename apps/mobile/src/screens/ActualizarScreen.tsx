@@ -48,15 +48,15 @@ const CATEGORIAS: { value: CategoriaActivo; label: string }[] = [
 ];
 
 /** Campos con su propio widget dedicado más abajo — no se duplican en la sección "dinámica". */
-const CAMPOS_CON_WIDGET_PROPIO = new Set(['codigoNuevo', 'estadoFisico', 'ubicacion', 'responsable', 'centroCosto']);
+const CAMPOS_CON_WIDGET_PROPIO = new Set(['codigoAnterior', 'estadoFisico', 'ubicacion', 'responsable', 'centroCosto']);
 
 /** Prefijo de clave de `cambios` para campos personalizados — debe coincidir con registros.service.ts (backend). */
 const PREFIJO_CAMPO_PERSONALIZADO = 'personalizado:';
 
 function valorActualCampoExtra(activo: ActivoLocal, campo: string): string {
   switch (campo) {
-    case 'codigoAnterior':
-      return activo.codigoAnterior ?? '';
+    case 'codigoNuevo':
+      return activo.codigoNuevo ?? '';
     case 'codigoControl':
       return activo.codigoControl ?? '';
     case 'nombre':
@@ -206,6 +206,11 @@ export function ActualizarScreen({ route, navigation }: Props) {
         case 'centroCosto':
           valor = values.centroCosto;
           break;
+        case 'codigoAnterior':
+          // Es la llave de identidad: ya viene garantizada por el activo que se
+          // está editando, esta pantalla no la muestra ni la deja modificar.
+          valor = resultado.activo.codigoAnterior;
+          break;
         default:
           valor = valoresExtra[c.campo];
           break;
@@ -280,7 +285,7 @@ export function ActualizarScreen({ route, navigation }: Props) {
           ancho,
           alto,
         })),
-        codigoNuevoSnapshot: activo.codigoNuevo,
+        codigoAnteriorSnapshot: activo.codigoAnterior,
         nombreSnapshot: activo.nombre,
       });
       void queryClient.invalidateQueries({ queryKey: ['resumen-local'] });
@@ -294,7 +299,7 @@ export function ActualizarScreen({ route, navigation }: Props) {
           ? 'Se guardaron los cambios y quedaron en el histórico de auditoría.'
           : 'No hubo cambios respecto a la ficha original.',
         nombreActivo: activo.nombre,
-        codigo: activo.codigoNuevo,
+        codigo: activo.codigoAnterior,
       });
     } catch {
       Alert.alert('Error', 'No se pudo guardar el registro. Intenta de nuevo.');
@@ -314,7 +319,7 @@ export function ActualizarScreen({ route, navigation }: Props) {
 
   return (
     <View style={{ flex: 1, backgroundColor: '#fff' }}>
-      <HeaderBar title="Actualizar activo" subtitle={activo.codigoNuevo} onBack={() => navigation.goBack()} />
+      <HeaderBar title="Actualizar activo" subtitle={activo.codigoAnterior} onBack={() => navigation.goBack()} />
 
       <ScrollView contentContainerStyle={{ padding: spacing[4], paddingBottom: 120 }}>
         {esVisible('estadoFisico') && (

@@ -15,8 +15,8 @@ const ESTADO_FISICO_LABEL: Record<string, string> = {
 };
 
 const CAMPO_VALOR: Record<string, (activo: ActivoDetailOutput) => string> = {
-  codigoNuevo: (a) => a.codigoNuevo,
-  codigoAnterior: (a) => a.codigoAnterior ?? '—',
+  codigoNuevo: (a) => a.codigoNuevo ?? '—',
+  codigoAnterior: (a) => a.codigoAnterior,
   codigoControl: (a) => a.codigoControl ?? '—',
   nombre: (a) => a.nombre ?? '—',
   descripcion: (a) => a.descripcion ?? '—',
@@ -103,7 +103,7 @@ export function ActivoDetalle() {
       </button>
 
       <header style={{ marginBottom: 24 }}>
-        <p className="eyebrow">AC/ {activo.codigoNuevo}</p>
+        <p className="eyebrow">AC/ {activo.codigoAnterior}</p>
         <h1 style={{ fontSize: 22, marginBottom: 8 }}>{activo.nombre}</h1>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <EstadoBadge estado={activo.estado} />

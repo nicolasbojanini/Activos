@@ -141,7 +141,7 @@ export function InicioScreen({ navigation }: Props) {
     <Pressable style={styles.row} onPress={() => navigation.navigate('Detalle', { activoId: item.id })}>
       <CategoriaIcon categoria={item.categoria as CategoriaActivo} />
       <View style={{ flex: 1, marginLeft: spacing[3] }}>
-        <Text style={styles.rowPlaca}>{item.codigoNuevo}</Text>
+        <Text style={styles.rowPlaca}>{item.codigoAnterior}</Text>
         <Text style={styles.rowNombre}>{item.nombre}</Text>
         <Text style={styles.rowUbicacion}>{item.ubicacionSede ?? 'Sin ubicación'}</Text>
       </View>

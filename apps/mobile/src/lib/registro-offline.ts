@@ -8,7 +8,7 @@ import { archivoLocalFoto, eliminarFotoLocal, type FotoCapturada } from './fotos
 type FotoLocalConDimensiones = Pick<FotoCapturada, 'clientPhotoId' | 'etiqueta' | 'orden' | 'ancho' | 'alto'>;
 
 interface EncolarInput extends Omit<RegistroAuditoriaInput, 'fotos'> {
-  codigoNuevoSnapshot?: string;
+  codigoAnteriorSnapshot?: string;
   nombreSnapshot?: string;
   fotos: FotoLocalConDimensiones[];
 }
@@ -27,7 +27,7 @@ export async function encolarRegistro(input: EncolarInput): Promise<void> {
     clientId: input.clientId,
     proyectoId: input.proyectoId,
     activoId: input.activoId,
-    codigoNuevoSnapshot: input.codigoNuevoSnapshot ?? null,
+    codigoAnteriorSnapshot: input.codigoAnteriorSnapshot ?? null,
     nombreSnapshot: input.nombreSnapshot ?? null,
     estado: input.estado,
     estadoFisico: input.estadoFisico ?? null,

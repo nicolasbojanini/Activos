@@ -26,7 +26,8 @@ export interface UbicacionOutput {
 
 export interface ActivoListItemOutput {
   id: string;
-  codigoNuevo: string;
+  codigoAnterior: string;
+  codigoNuevo: string | null;
   nombre: string;
   categoria: CategoriaActivo;
   ubicacion: UbicacionOutput | null;
@@ -35,7 +36,6 @@ export interface ActivoListItemOutput {
 }
 
 export interface ActivoDetailOutput extends ActivoListItemOutput {
-  codigoAnterior: string | null;
   codigoControl: string | null;
   descripcion: string | null;
   color: string | null;

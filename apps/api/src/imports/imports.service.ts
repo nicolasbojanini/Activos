@@ -123,8 +123,8 @@ export class ImportsService {
     // "filas". Separar validación de persistencia es lo que permite que la
     // fase 3 escriba en lotes concurrentes en vez de fila por fila.
     const filasValidas: {
-      codigoNuevo: string;
-      datos: Omit<Prisma.ActivoUncheckedCreateInput, 'codigoNuevo'>;
+      codigoAnterior: string;
+      datos: Omit<Prisma.ActivoUncheckedCreateInput, 'codigoAnterior'>;
     }[] = [];
 
     for (let i = 0; i < dto.filas.length; i++) {
@@ -215,11 +215,11 @@ export class ImportsService {
         continue;
       }
 
-      if (!parsed.data.codigoNuevo) {
+      if (!parsed.data.codigoAnterior) {
         errores.push({
           fila: numeroFila,
-          campo: 'codigoNuevo',
-          motivo: 'El código nuevo es obligatorio',
+          campo: 'codigoAnterior',
+          motivo: 'El código anterior es obligatorio',
         });
         continue;
       }
@@ -251,7 +251,7 @@ export class ImportsService {
         nombre: parsed.data.nombre ?? '',
         descripcion: parsed.data.descripcion ?? null,
         categoria: parsed.data.categoria ?? 'OTRO',
-        codigoAnterior: parsed.data.codigoAnterior ?? null,
+        codigoNuevo: parsed.data.codigoNuevo ?? null,
         codigoControl: parsed.data.codigoControl ?? null,
         color: parsed.data.color ?? null,
         medidas: parsed.data.medidas ?? null,
@@ -272,23 +272,26 @@ export class ImportsService {
           : {}),
       };
 
-      filasValidas.push({ codigoNuevo: parsed.data.codigoNuevo, datos });
+      filasValidas.push({ codigoAnterior: parsed.data.codigoAnterior, datos });
     }
 
     // Fase 2: un solo findMany (en lotes, por si el IN crece demasiado) para
-    // saber qué codigoNuevo ya existían ANTES de este import — así el conteo
-    // creadas/actualizadas no necesita un findUnique por fila. Si el mismo
-    // codigoNuevo aparece dos veces en el propio archivo, ambas ocurrencias
-    // se cuentan igual (con el estado "antes del import"); el dato final en
-    // la base es correcto de todas formas porque el upsert es last-write-wins.
-    const codigosUnicos = [...new Set(filasValidas.map((f) => f.codigoNuevo))];
+    // saber qué codigoAnterior ya existían ANTES de este import — así el
+    // conteo creadas/actualizadas no necesita un findUnique por fila. Si el
+    // mismo codigoAnterior aparece dos veces en el propio archivo, ambas
+    // ocurrencias se cuentan igual (con el estado "antes del import"); el
+    // dato final en la base es correcto de todas formas porque el upsert es
+    // last-write-wins.
+    const codigosUnicos = [
+      ...new Set(filasValidas.map((f) => f.codigoAnterior)),
+    ];
     const existentesAntes = new Set<string>();
     for (const lote of enLotes(codigosUnicos, 2000)) {
       const filas = await tenantPrisma.activo.findMany({
-        where: { codigoNuevo: { in: lote } },
-        select: { codigoNuevo: true },
+        where: { codigoAnterior: { in: lote } },
+        select: { codigoAnterior: true },
       });
-      for (const fila of filas) existentesAntes.add(fila.codigoNuevo);
+      for (const fila of filas) existentesAntes.add(fila.codigoAnterior);
     }
 
     // Fase 3: persiste en lotes concurrentes (no uno por uno) — el cuello de
@@ -303,14 +306,14 @@ export class ImportsService {
       await Promise.all(
         lote.map((f) =>
           tenantPrisma.activo.upsert({
-            where: { codigoNuevo: f.codigoNuevo },
-            create: { codigoNuevo: f.codigoNuevo, ...f.datos },
+            where: { codigoAnterior: f.codigoAnterior },
+            create: { codigoAnterior: f.codigoAnterior, ...f.datos },
             update: f.datos,
           }),
         ),
       );
       for (const f of lote) {
-        if (existentesAntes.has(f.codigoNuevo)) actualizadas++;
+        if (existentesAntes.has(f.codigoAnterior)) actualizadas++;
         else creadas++;
       }
     }
