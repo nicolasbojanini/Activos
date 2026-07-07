@@ -28,16 +28,7 @@
     "plugins": [
       "expo-secure-store",
       "expo-sqlite",
-      "@sentry/react-native",
-      [
-        "expo-build-properties",
-        {
-          "android": {
-            "enableProguardInReleaseBuilds": true,
-            "enableShrinkResourcesInReleaseBuilds": true
-          }
-        }
-      ]
+      "@sentry/react-native"
     ],
     "extra": {
       "eas": {
