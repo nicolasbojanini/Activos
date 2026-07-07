@@ -14,11 +14,22 @@ import { inicializarBaseLocal } from './src/db/client';
 Sentry.init({
   dsn: process.env.EXPO_PUBLIC_SENTRY_DSN,
   environment: __DEV__ ? 'development' : 'production',
-  tracesSampleRate: 1.0,
+  // Los errores se reportan siempre; solo las trazas de performance se
+  // muestrean — al 100% instrumentan cada interacción y pesan en producción.
+  tracesSampleRate: __DEV__ ? 1.0 : 0.15,
 });
 
 const queryClient = new QueryClient({
-  defaultOptions: { queries: { retry: 1 } },
+  defaultOptions: {
+    queries: {
+      retry: 1,
+      // Los datos son locales (SQLite) y solo cambian cuando la propia app
+      // los invalida con invalidateQueries — refetchear por montar la
+      // pantalla o recuperar el foco solo repite trabajo.
+      staleTime: 30_000,
+      refetchOnWindowFocus: false,
+    },
+  },
 });
 
 function App() {

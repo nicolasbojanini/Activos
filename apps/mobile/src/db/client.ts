@@ -13,6 +13,14 @@ export const db = drizzle(sqlite);
  * el esquema es simple y estable, así que se crea con DDL directo al iniciar.
  */
 export function inicializarBaseLocal() {
+  // WAL: las lecturas (lista, KPIs) no se bloquean mientras la cola de
+  // sincronización escribe. synchronous=NORMAL es seguro con WAL y evita un
+  // fsync por commit.
+  sqlite.execSync(`
+    PRAGMA journal_mode = WAL;
+    PRAGMA synchronous = NORMAL;
+  `);
+
   sqlite.execSync(`
     CREATE TABLE IF NOT EXISTS activos_local (
       id TEXT PRIMARY KEY,

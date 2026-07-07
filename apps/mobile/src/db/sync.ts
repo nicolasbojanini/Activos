@@ -1,4 +1,4 @@
-import { eq, isNull, and, or } from 'drizzle-orm';
+import { eq, and, or, asc, inArray, sql } from 'drizzle-orm';
 import type {
   CampoPersonalizadoOutput,
   ConfiguracionCampoOutput,
@@ -67,57 +67,62 @@ export async function refrescarConfiguracionCampos() {
  */
 export async function descargarSesion(proyecto: ProyectoOutput) {
   const proyectoId = proyecto.id;
-  const ubicaciones = await getUbicaciones();
-  const configuracionCampos = await getConfiguracionCampos();
-  const fichasCompletas = await getSesionActivos(proyectoId);
+  // Las tres descargas no dependen entre sí — en paralelo, el tiempo total es
+  // el de la más lenta (la sesión de activos) en vez de la suma de las tres.
+  const [ubicaciones, configuracionCampos, fichasCompletas] = await Promise.all([
+    getUbicaciones(),
+    getConfiguracionCampos(),
+    getSesionActivos(proyectoId),
+  ]);
 
-  // El driver expo-sqlite de drizzle es síncrono: cada `db.insert(...)` fuera
-  // de una transacción hace su propio commit/fsync. Con miles de activos,
-  // 7.398 inserts sueltos (uno por fila) son minutos de espera aunque la
-  // descarga por red ya sea rápida — el cuello de botella pasa a ser
-  // SQLite, no la API. Envolver todo en una sola transacción reduce esos
-  // miles de fsync a uno solo.
+  const filas = fichasCompletas.map((activo) => ({
+    id: activo.id,
+    // '' en vez de null: en instalaciones viejas la columna codigo_nuevo
+    // todavía tiene NOT NULL (SQLite no permite quitarlo con ALTER
+    // TABLE) — nunca insertar null acá evita romper ese constraint.
+    codigoNuevo: activo.codigoNuevo ?? '',
+    codigoAnterior: activo.codigoAnterior,
+    codigoControl: activo.codigoControl,
+    nombre: activo.nombre,
+    descripcion: activo.descripcion,
+    categoria: activo.categoria,
+    color: activo.color,
+    medidas: activo.medidas,
+    capacidad: activo.capacidad,
+    marca: activo.marca,
+    modelo: activo.modelo,
+    serie: activo.serie,
+    ubicacionId: activo.ubicacion?.id ?? null,
+    ubicacionSede: activo.ubicacion?.sede ?? null,
+    responsable: activo.responsable,
+    centroCosto: activo.centroCosto,
+    estadoFisico: activo.estadoFisico,
+    fechaAdquisicion: activo.fechaAdquisicion,
+    valorLibros: activo.valorLibros,
+    proveedor: activo.proveedor,
+    vidaUtilMeses: activo.vidaUtilMeses,
+    camposPersonalizadosJson: activo.camposPersonalizados ? JSON.stringify(activo.camposPersonalizados) : null,
+    estadoServidor: activo.estado,
+    ultimoAuditorServidor: activo.ultimoAuditor,
+  }));
+
+  // El driver expo-sqlite de drizzle es síncrono: la transacción única evita
+  // un fsync por fila, y el insert multi-fila evita preparar miles de
+  // statements (uno por activo). Lotes de 500: 500 filas × ~25 columnas =
+  // 12.500 parámetros, holgado frente al límite de 32.766 de SQLite.
+  const LOTE = 500;
   db.transaction((tx) => {
     tx.delete(activosLocal).run();
     tx.delete(ubicacionesLocal).run();
 
-    for (const u of ubicaciones) {
-      tx.insert(ubicacionesLocal).values({ id: u.id, codigo: u.codigo, sede: u.sede, detalle: u.detalle }).run();
+    if (ubicaciones.length > 0) {
+      tx.insert(ubicacionesLocal)
+        .values(ubicaciones.map((u) => ({ id: u.id, codigo: u.codigo, sede: u.sede, detalle: u.detalle })))
+        .run();
     }
 
-    for (const activo of fichasCompletas) {
-      tx.insert(activosLocal)
-        .values({
-          id: activo.id,
-          // '' en vez de null: en instalaciones viejas la columna codigo_nuevo
-          // todavía tiene NOT NULL (SQLite no permite quitarlo con ALTER
-          // TABLE) — nunca insertar null acá evita romper ese constraint.
-          codigoNuevo: activo.codigoNuevo ?? '',
-          codigoAnterior: activo.codigoAnterior,
-          codigoControl: activo.codigoControl,
-          nombre: activo.nombre,
-          descripcion: activo.descripcion,
-          categoria: activo.categoria,
-          color: activo.color,
-          medidas: activo.medidas,
-          capacidad: activo.capacidad,
-          marca: activo.marca,
-          modelo: activo.modelo,
-          serie: activo.serie,
-          ubicacionId: activo.ubicacion?.id ?? null,
-          ubicacionSede: activo.ubicacion?.sede ?? null,
-          responsable: activo.responsable,
-          centroCosto: activo.centroCosto,
-          estadoFisico: activo.estadoFisico,
-          fechaAdquisicion: activo.fechaAdquisicion,
-          valorLibros: activo.valorLibros,
-          proveedor: activo.proveedor,
-          vidaUtilMeses: activo.vidaUtilMeses,
-          camposPersonalizadosJson: activo.camposPersonalizados ? JSON.stringify(activo.camposPersonalizados) : null,
-          estadoServidor: activo.estado,
-          ultimoAuditorServidor: activo.ultimoAuditor,
-        })
-        .run();
+    for (let i = 0; i < filas.length; i += LOTE) {
+      tx.insert(activosLocal).values(filas.slice(i, i + LOTE)).run();
     }
   });
 
@@ -151,10 +156,38 @@ export interface ActivoLocalConEstado {
   sinSincronizar: boolean;
 }
 
-export async function listarActivosLocal(q?: string): Promise<ActivoLocalConEstado[]> {
-  const activos = await db.select().from(activosLocal);
-  const pendientes = await db.select().from(colaRegistros).where(eq(colaRegistros.synced, 0));
+/**
+ * La pantalla solo puede mostrar unas decenas de filas: traer más de este
+ * tope no aporta nada y materializar el inventario completo (miles de filas)
+ * como objetos JS en cada búsqueda era una de las causas de los ANR.
+ */
+const LIMITE_LISTA = 200;
 
+export async function listarActivosLocal(q?: string): Promise<ActivoLocalConEstado[]> {
+  const filtro = q?.trim().toLowerCase();
+  // % y _ son comodines de LIKE: se escapan para que buscar "100%" no
+  // se comporte como "empieza por 100".
+  const patron = filtro ? `%${filtro.replace(/[\\%_]/g, (c) => `\\${c}`)}%` : undefined;
+
+  const activos = await db
+    .select()
+    .from(activosLocal)
+    .where(
+      patron
+        ? or(
+            sql`lower(${activosLocal.codigoAnterior}) LIKE ${patron} ESCAPE '\\'`,
+            sql`lower(coalesce(${activosLocal.codigoNuevo}, '')) LIKE ${patron} ESCAPE '\\'`,
+            sql`lower(${activosLocal.nombre}) LIKE ${patron} ESCAPE '\\'`,
+            sql`lower(coalesce(${activosLocal.ubicacionSede}, '')) LIKE ${patron} ESCAPE '\\'`,
+          )
+        : undefined,
+    )
+    .orderBy(asc(activosLocal.codigoAnterior))
+    .limit(LIMITE_LISTA);
+
+  // La cola de pendientes es pequeña (lo capturado sin sincronizar) —
+  // cargarla completa sigue siendo barato.
+  const pendientes = await db.select().from(colaRegistros).where(eq(colaRegistros.synced, 0));
   const pendientePorActivo = new Map<string, (typeof pendientes)[number]>();
   for (const p of pendientes) {
     if (!p.activoId) continue;
@@ -162,30 +195,19 @@ export async function listarActivosLocal(q?: string): Promise<ActivoLocalConEsta
     if (!actual || p.createdAt > actual.createdAt) pendientePorActivo.set(p.activoId, p);
   }
 
-  const filtro = q?.trim().toLowerCase();
-  return activos
-    .filter(
-      (a) =>
-        !filtro ||
-        a.codigoAnterior.toLowerCase().includes(filtro) ||
-        (a.codigoNuevo ?? '').toLowerCase().includes(filtro) ||
-        a.nombre.toLowerCase().includes(filtro) ||
-        (a.ubicacionSede ?? '').toLowerCase().includes(filtro),
-    )
-    .map((a) => {
-      const pendiente = pendientePorActivo.get(a.id);
-      return {
-        id: a.id,
-        codigoAnterior: a.codigoAnterior,
-        nombre: a.nombre,
-        categoria: a.categoria,
-        ubicacionSede: a.ubicacionSede,
-        estado: (pendiente?.estado ?? a.estadoServidor) as EstadoAuditoria,
-        ultimoAuditor: a.ultimoAuditorServidor,
-        sinSincronizar: !!pendiente,
-      };
-    })
-    .sort((a, b) => a.codigoAnterior.localeCompare(b.codigoAnterior));
+  return activos.map((a) => {
+    const pendiente = pendientePorActivo.get(a.id);
+    return {
+      id: a.id,
+      codigoAnterior: a.codigoAnterior,
+      nombre: a.nombre,
+      categoria: a.categoria,
+      ubicacionSede: a.ubicacionSede,
+      estado: (pendiente?.estado ?? a.estadoServidor) as EstadoAuditoria,
+      ultimoAuditor: a.ultimoAuditorServidor,
+      sinSincronizar: !!pendiente,
+    };
+  });
 }
 
 export async function obtenerActivoLocal(activoId: string) {
@@ -232,23 +254,65 @@ export interface ResumenLocal {
 }
 
 export async function calcularResumenLocal(): Promise<ResumenLocal> {
-  const lista = await listarActivosLocal();
-  const noRegistrados = await db
-    .select()
-    .from(colaRegistros)
-    .where(and(isNull(colaRegistros.activoId), eq(colaRegistros.estado, 'NO_REGISTRADO')));
+  // Conteo base por estado del servidor con GROUP BY (una pasada en el motor
+  // de SQLite) — antes esto cargaba y ORDENABA el inventario completo en JS
+  // solo para contar, en cada invalidación (o sea, en cada guardado).
+  const conteos = await db
+    .select({ estado: activosLocal.estadoServidor, n: sql<number>`count(*)` })
+    .from(activosLocal)
+    .groupBy(activosLocal.estadoServidor);
 
-  const total = lista.length;
-  const pendientes = lista.filter((a) => a.estado === 'PENDIENTE').length;
-  const auditados = lista.filter((a) => a.estado === 'AUDITADO').length;
-  const diferencias = lista.filter((a) => a.estado === 'DIFERENCIA').length;
-  const faltantes = lista.filter((a) => a.estado === 'FALTANTE').length;
-  const pct = total > 0 ? (total - pendientes) / total : 0;
+  const porEstado = new Map<string, number>();
+  for (const c of conteos) porEstado.set(c.estado, c.n);
 
-  return { total, pendientes, auditados, diferencias, faltantes, noRegistrados: noRegistrados.length, pct };
+  // Corrección por mutaciones locales sin sincronizar: para esos activos el
+  // estado efectivo es el de la cola (la última por activo), no el del
+  // servidor. Son pocas filas, ajustarlas una a una es barato.
+  const pendientesCola = await db.select().from(colaRegistros).where(eq(colaRegistros.synced, 0));
+
+  const ultimaPorActivo = new Map<string, (typeof pendientesCola)[number]>();
+  let noRegistrados = 0;
+  for (const p of pendientesCola) {
+    if (!p.activoId) {
+      if (p.estado === 'NO_REGISTRADO') noRegistrados++;
+      continue;
+    }
+    const actual = ultimaPorActivo.get(p.activoId);
+    if (!actual || p.createdAt > actual.createdAt) ultimaPorActivo.set(p.activoId, p);
+  }
+
+  if (ultimaPorActivo.size > 0) {
+    const filas = await db
+      .select({ id: activosLocal.id, estadoServidor: activosLocal.estadoServidor })
+      .from(activosLocal)
+      .where(inArray(activosLocal.id, [...ultimaPorActivo.keys()]));
+    for (const fila of filas) {
+      const efectivo = ultimaPorActivo.get(fila.id)!.estado;
+      if (efectivo !== fila.estadoServidor) {
+        porEstado.set(fila.estadoServidor, (porEstado.get(fila.estadoServidor) ?? 1) - 1);
+        porEstado.set(efectivo, (porEstado.get(efectivo) ?? 0) + 1);
+      }
+    }
+  }
+
+  const total = [...porEstado.values()].reduce((a, b) => a + b, 0);
+  const pendientes = porEstado.get('PENDIENTE') ?? 0;
+
+  return {
+    total,
+    pendientes,
+    auditados: porEstado.get('AUDITADO') ?? 0,
+    diferencias: porEstado.get('DIFERENCIA') ?? 0,
+    faltantes: porEstado.get('FALTANTE') ?? 0,
+    noRegistrados,
+    pct: total > 0 ? (total - pendientes) / total : 0,
+  };
 }
 
 export async function contarPendientesSync(): Promise<number> {
-  const filas = await db.select().from(colaRegistros).where(eq(colaRegistros.synced, 0));
-  return filas.length;
+  const [fila] = await db
+    .select({ n: sql<number>`count(*)` })
+    .from(colaRegistros)
+    .where(eq(colaRegistros.synced, 0));
+  return fila?.n ?? 0;
 }

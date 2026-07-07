@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { memo, useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, FlatList, Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -31,6 +31,45 @@ const logoWhite = require('../../assets/adn-logo-white.png');
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Inicio'>;
 
+// Alto FIJO de cada fila (styles.row tiene height explícito) + su marginBottom.
+// Mantenerlo exacto es lo que hace válido el getItemLayout del FlatList: le
+// permite saltar a cualquier posición sin medir las filas intermedias.
+const ALTO_FILA = 80;
+const ALTO_ITEM = ALTO_FILA + spacing[2];
+
+// Fila memoizada: con miles de activos, re-crear el render de cada fila visible
+// cuando cambia cualquier otro estado de la pantalla (KPIs, sync, búsqueda)
+// desperdicia frames. memo + onPress estable la aísla de esos re-renders.
+const FilaActivo = memo(function FilaActivo({
+  item,
+  onPress,
+}: {
+  item: ActivoLocalConEstado;
+  onPress: (activoId: string) => void;
+}) {
+  return (
+    <Pressable style={styles.row} onPress={() => onPress(item.id)}>
+      <CategoriaIcon categoria={item.categoria as CategoriaActivo} />
+      <View style={{ flex: 1, marginLeft: spacing[3] }}>
+        <Text style={styles.rowPlaca} numberOfLines={1}>
+          {item.codigoAnterior}
+        </Text>
+        <Text style={styles.rowNombre} numberOfLines={1}>
+          {item.nombre}
+        </Text>
+        <Text style={styles.rowUbicacion} numberOfLines={1}>
+          {item.ubicacionSede ?? 'Sin ubicación'}
+        </Text>
+      </View>
+      <View style={{ alignItems: 'flex-end', gap: 4 }}>
+        <EstadoBadge estado={item.estado} />
+        {item.sinSincronizar && <Text style={styles.sinSyncLabel}>Sin sincronizar</Text>}
+      </View>
+      <ChevronRight size={18} color={colors.ink[400]} style={{ marginLeft: spacing[2] }} />
+    </Pressable>
+  );
+});
+
 export function InicioScreen({ navigation }: Props) {
   const usuario = useAuthStore((s) => s.usuario);
   const clienteId = useAuthStore((s) => s.clienteId);
@@ -39,6 +78,7 @@ export function InicioScreen({ navigation }: Props) {
   const ubicacionActiva = useUbicacionActivaStore((s) => s.ubicacionActiva);
   const queryClient = useQueryClient();
   const [q, setQ] = useState('');
+  const [qDebounced, setQDebounced] = useState('');
   const [sincronizando, setSincronizando] = useState(false);
   const [errorSesion, setErrorSesion] = useState<string | null>(null);
   const [descargando, setDescargando] = useState(false);
@@ -114,11 +154,22 @@ export function InicioScreen({ navigation }: Props) {
     })();
   };
 
+  // Debounce del buscador: el query de la lista corre 300ms después de la
+  // última tecla, no en cada pulsación — teclear rápido ya no dispara una
+  // consulta SQLite por letra ni congela el hilo de JS.
+  useEffect(() => {
+    const timer = setTimeout(() => setQDebounced(q), 300);
+    return () => clearTimeout(timer);
+  }, [q]);
+
   const { data: proyecto } = useQuery({ queryKey: ['proyecto-local'], queryFn: obtenerProyectoActivo });
   const { data: resumen } = useQuery({ queryKey: ['resumen-local'], queryFn: calcularResumenLocal });
   const { data: activos, isLoading: activosLoading } = useQuery({
-    queryKey: ['activos-local', q],
-    queryFn: () => listarActivosLocal(q),
+    queryKey: ['activos-local', qDebounced],
+    queryFn: () => listarActivosLocal(qDebounced),
+    // Mantiene visible el resultado anterior mientras llega el nuevo, en vez
+    // de vaciar la lista entre búsquedas.
+    placeholderData: (prev) => prev,
   });
   const { data: pendientesSync = 0 } = useQuery({
     queryKey: ['pendientes-sync'],
@@ -137,20 +188,13 @@ export function InicioScreen({ navigation }: Props) {
 
   const totalRevisados = resumen ? resumen.total - resumen.pendientes : 0;
 
-  const renderItem = ({ item }: { item: ActivoLocalConEstado }) => (
-    <Pressable style={styles.row} onPress={() => navigation.navigate('Detalle', { activoId: item.id })}>
-      <CategoriaIcon categoria={item.categoria as CategoriaActivo} />
-      <View style={{ flex: 1, marginLeft: spacing[3] }}>
-        <Text style={styles.rowPlaca}>{item.codigoAnterior}</Text>
-        <Text style={styles.rowNombre}>{item.nombre}</Text>
-        <Text style={styles.rowUbicacion}>{item.ubicacionSede ?? 'Sin ubicación'}</Text>
-      </View>
-      <View style={{ alignItems: 'flex-end', gap: 4 }}>
-        <EstadoBadge estado={item.estado} />
-        {item.sinSincronizar && <Text style={styles.sinSyncLabel}>Sin sincronizar</Text>}
-      </View>
-      <ChevronRight size={18} color={colors.ink[400]} style={{ marginLeft: spacing[2] }} />
-    </Pressable>
+  const abrirDetalle = useCallback(
+    (activoId: string) => navigation.navigate('Detalle', { activoId }),
+    [navigation],
+  );
+  const renderItem = useCallback(
+    ({ item }: { item: ActivoLocalConEstado }) => <FilaActivo item={item} onPress={abrirDetalle} />,
+    [abrirDetalle],
   );
 
   if (!clienteId) {
@@ -271,6 +315,12 @@ export function InicioScreen({ navigation }: Props) {
         data={activos ?? []}
         keyExtractor={(item) => item.id}
         renderItem={renderItem}
+        getItemLayout={(_, index) => ({ length: ALTO_ITEM, offset: ALTO_ITEM * index, index })}
+        initialNumToRender={12}
+        maxToRenderPerBatch={12}
+        windowSize={7}
+        removeClippedSubviews
+        keyboardShouldPersistTaps="handled"
         contentContainerStyle={{ paddingHorizontal: spacing[4], paddingBottom: 100 }}
         ListEmptyComponent={
           <Text style={styles.empty}>
@@ -403,6 +453,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderRadius: radius.lg,
     padding: spacing[3],
+    height: ALTO_FILA, // fijo: requisito del getItemLayout (los textos van con numberOfLines={1})
     marginBottom: spacing[2],
     shadowColor: '#0B2E4F',
     shadowOpacity: 0.06,
