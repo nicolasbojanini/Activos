@@ -16,22 +16,50 @@ const EXPIRACION_DESCARGA_SEGUNDOS = 60 * 60;
 export class S3Service implements OnModuleInit {
   private readonly logger = new Logger(S3Service.name);
   private readonly client: S3Client;
+  private readonly clientPublico: S3Client;
   private readonly bucket: string;
   private readonly endpoint: string;
 
   constructor(private readonly config: ConfigService) {
     this.endpoint = this.config.getOrThrow<string>('S3_ENDPOINT');
     this.bucket = this.config.getOrThrow<string>('S3_BUCKET');
+
+    const region = this.config.get<string>('S3_REGION', 'us-east-1');
+    const forcePathStyle =
+      this.config.get<string>('S3_FORCE_PATH_STYLE', 'true') === 'true';
+    const credentials = {
+      accessKeyId: this.config.getOrThrow<string>('S3_ACCESS_KEY'),
+      secretAccessKey: this.config.getOrThrow<string>('S3_SECRET_KEY'),
+    };
+
+    // Cliente interno: operaciones del propio servidor (crear bucket,
+    // descargar objetos para el ZIP) — en Railway va por la red privada.
     this.client = new S3Client({
-      region: this.config.get<string>('S3_REGION', 'us-east-1'),
+      region,
       endpoint: this.endpoint,
-      forcePathStyle:
-        this.config.get<string>('S3_FORCE_PATH_STYLE', 'true') === 'true',
-      credentials: {
-        accessKeyId: this.config.getOrThrow<string>('S3_ACCESS_KEY'),
-        secretAccessKey: this.config.getOrThrow<string>('S3_SECRET_KEY'),
-      },
+      forcePathStyle,
+      credentials,
     });
+
+    // Cliente para PRESIGNAR: la firma SigV4 incluye el host, así que las
+    // URLs que consumen el teléfono y el navegador deben firmarse contra el
+    // endpoint PÚBLICO (S3_PUBLIC_ENDPOINT). Con el endpoint interno de
+    // Railway (minio.railway.internal) el cliente externo jamás puede
+    // conectarse y toda subida/descarga de fotos falla. En local ambos
+    // endpoints coinciden y la variable puede omitirse.
+    const endpointPublico = this.config.get<string>(
+      'S3_PUBLIC_ENDPOINT',
+      this.endpoint,
+    );
+    this.clientPublico =
+      endpointPublico === this.endpoint
+        ? this.client
+        : new S3Client({
+            region,
+            endpoint: endpointPublico,
+            forcePathStyle,
+            credentials,
+          });
   }
 
   /**
@@ -69,7 +97,7 @@ export class S3Service implements OnModuleInit {
       Key: s3Key,
       ContentType: contentType,
     });
-    return getSignedUrl(this.client, command, {
+    return getSignedUrl(this.clientPublico, command, {
       expiresIn: EXPIRACION_SUBIDA_SEGUNDOS,
     });
   }
@@ -77,7 +105,7 @@ export class S3Service implements OnModuleInit {
   /** Bucket privado — cada foto se sirve con una URL de descarga (GET) prefirmada, nunca con acceso directo/público. */
   async urlDescarga(s3Key: string): Promise<string> {
     const command = new GetObjectCommand({ Bucket: this.bucket, Key: s3Key });
-    return getSignedUrl(this.client, command, {
+    return getSignedUrl(this.clientPublico, command, {
       expiresIn: EXPIRACION_DESCARGA_SEGUNDOS,
     });
   }

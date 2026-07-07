@@ -415,7 +415,10 @@ export function ActualizarScreen({ route, navigation }: Props) {
         {camposExtra.map((c) =>
           c.campo === 'categoria' ? (
             <View key={c.campo}>
-              <Text style={styles.sectionLabel}>{c.etiqueta}</Text>
+              <Text style={styles.sectionLabel}>
+                {c.etiqueta}
+                {c.requerido && <Text style={{ color: colors.state.danger }}> *</Text>}
+              </Text>
               <View style={styles.chipsWrap}>
                 {CATEGORIAS.map((cat) => (
                   <Pressable
@@ -432,7 +435,10 @@ export function ActualizarScreen({ route, navigation }: Props) {
             </View>
           ) : (
             <View key={c.campo}>
-              <Text style={styles.sectionLabel}>{c.etiqueta}</Text>
+              <Text style={styles.sectionLabel}>
+                {c.etiqueta}
+                {c.requerido && <Text style={{ color: colors.state.danger }}> *</Text>}
+              </Text>
               <TextInput
                 value={valoresExtra[c.campo] ?? ''}
                 onChangeText={(texto) => setValoresExtra((v) => ({ ...v, [c.campo]: texto }))}

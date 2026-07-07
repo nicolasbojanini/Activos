@@ -31,11 +31,10 @@ const logoWhite = require('../../assets/adn-logo-white.png');
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Inicio'>;
 
-// Alto FIJO de cada fila (styles.row tiene height explícito) + su marginBottom.
-// Mantenerlo exacto es lo que hace válido el getItemLayout del FlatList: le
-// permite saltar a cualquier posición sin medir las filas intermedias.
+// Alto FIJO de cada fila (styles.row tiene height explícito, textos con
+// numberOfLines={1}): filas uniformes miden más rápido y evitan saltos de
+// layout durante el scroll.
 const ALTO_FILA = 80;
-const ALTO_ITEM = ALTO_FILA + spacing[2];
 
 // Fila memoizada: con miles de activos, re-crear el render de cada fila visible
 // cuando cambia cualquier otro estado de la pantalla (KPIs, sync, búsqueda)
@@ -263,65 +262,77 @@ export function InicioScreen({ navigation }: Props) {
         </View>
       </SafeAreaView>
 
-      <View style={styles.syncBar}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing[2] }}>
-          {!conectado && <CloudOff size={14} color={colors.ink[500]} />}
-          <Text style={styles.syncTexto}>
-            {!conectado ? 'Sin conexión · ' : ''}
-            {pendientesSync > 0 ? `${pendientesSync} cambios sin sincronizar` : 'Todo sincronizado'}
-          </Text>
-        </View>
-        {pendientesSync > 0 && (
-          <Pressable onPress={() => void ejecutarSincronizacion()} style={styles.syncButton} disabled={sincronizando}>
-            {sincronizando ? (
-              <ActivityIndicator size="small" color={colors.brand.blue} />
-            ) : (
-              <RefreshCw size={14} color={colors.brand.blue} />
-            )}
-            <Text style={styles.syncButtonLabel}>Sincronizar ahora</Text>
-          </Pressable>
-        )}
-      </View>
-
-      {ubicacionActiva && (
-        <View style={styles.ubicacionActivaBar}>
-          <MapPin size={14} color={colors.brand.blue} />
-          <Text style={styles.ubicacionActivaTexto}>Ubicación activa: {ubicacionActiva.sede}</Text>
-        </View>
-      )}
-
-      <View style={styles.kpiRow}>
-        {kpis.map((kpi) => (
-          <View key={kpi.key} style={styles.kpiCard}>
-            <View style={[styles.kpiDot, { backgroundColor: kpi.color }]} />
-            <Text style={styles.kpiValue}>{kpi.value}</Text>
-            <Text style={styles.kpiLabel}>{kpi.label}</Text>
-          </View>
-        ))}
-      </View>
-
-      <View style={styles.searchWrap}>
-        <Search size={16} color={colors.ink[400]} />
-        <TextInput
-          value={q}
-          onChangeText={setQ}
-          placeholder="Buscar por código, nombre o ubicación"
-          style={styles.searchInput}
-        />
-      </View>
-
+      {/* Todo lo que va debajo del encabezado azul vive DENTRO del FlatList
+          (ListHeaderComponent): en pantallas chicas los KPIs se cortaban
+          porque solo la lista scrolleaba — ahora scrollea la pantalla entera.
+          Sin getItemLayout a propósito: el alto del header varía (la barra de
+          ubicación activa es condicional) y unos offsets desfasados causan
+          saltos de scroll peores que medir 200 filas de alto fijo. */}
       <FlatList
         style={{ flex: 1 }}
         data={activos ?? []}
         keyExtractor={(item) => item.id}
         renderItem={renderItem}
-        getItemLayout={(_, index) => ({ length: ALTO_ITEM, offset: ALTO_ITEM * index, index })}
         initialNumToRender={12}
         maxToRenderPerBatch={12}
         windowSize={7}
         removeClippedSubviews
         keyboardShouldPersistTaps="handled"
-        contentContainerStyle={{ paddingHorizontal: spacing[4], paddingBottom: 100 }}
+        contentContainerStyle={{ paddingBottom: 130 }}
+        ListHeaderComponent={
+          <>
+            <View style={styles.syncBar}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing[2] }}>
+                {!conectado && <CloudOff size={14} color={colors.ink[500]} />}
+                <Text style={styles.syncTexto}>
+                  {!conectado ? 'Sin conexión · ' : ''}
+                  {pendientesSync > 0 ? `${pendientesSync} cambios sin sincronizar` : 'Todo sincronizado'}
+                </Text>
+              </View>
+              {pendientesSync > 0 && (
+                <Pressable
+                  onPress={() => void ejecutarSincronizacion()}
+                  style={styles.syncButton}
+                  disabled={sincronizando}
+                >
+                  {sincronizando ? (
+                    <ActivityIndicator size="small" color={colors.brand.blue} />
+                  ) : (
+                    <RefreshCw size={14} color={colors.brand.blue} />
+                  )}
+                  <Text style={styles.syncButtonLabel}>Sincronizar ahora</Text>
+                </Pressable>
+              )}
+            </View>
+
+            {ubicacionActiva && (
+              <View style={styles.ubicacionActivaBar}>
+                <MapPin size={14} color={colors.brand.blue} />
+                <Text style={styles.ubicacionActivaTexto}>Ubicación activa: {ubicacionActiva.sede}</Text>
+              </View>
+            )}
+
+            <View style={styles.kpiRow}>
+              {kpis.map((kpi) => (
+                <View key={kpi.key} style={styles.kpiCard}>
+                  <View style={[styles.kpiDot, { backgroundColor: kpi.color }]} />
+                  <Text style={styles.kpiValue}>{kpi.value}</Text>
+                  <Text style={styles.kpiLabel}>{kpi.label}</Text>
+                </View>
+              ))}
+            </View>
+
+            <View style={styles.searchWrap}>
+              <Search size={16} color={colors.ink[400]} />
+              <TextInput
+                value={q}
+                onChangeText={setQ}
+                placeholder="Buscar por código, nombre o ubicación"
+                style={styles.searchInput}
+              />
+            </View>
+          </>
+        }
         ListEmptyComponent={
           <Text style={styles.empty}>
             {activosLoading ? 'Cargando…' : 'No hay activos que coincidan con la búsqueda.'}
@@ -453,8 +464,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderRadius: radius.lg,
     padding: spacing[3],
-    height: ALTO_FILA, // fijo: requisito del getItemLayout (los textos van con numberOfLines={1})
+    height: ALTO_FILA,
     marginBottom: spacing[2],
+    marginHorizontal: spacing[4],
     shadowColor: '#0B2E4F',
     shadowOpacity: 0.06,
     shadowRadius: 6,
