@@ -65,6 +65,13 @@ export type BuscarActivoQuery = z.infer<typeof buscarActivoQuerySchema>;
 
 export const sesionActivosQuerySchema = z.object({
   proyectoId: z.string(),
+  /**
+   * Cursor de sync incremental (ISO 8601): con este parámetro la respuesta
+   * incluye solo los activos con updatedAt >= cursor — INCLUYENDO los
+   * borrados (eliminado: true) para que el espejo local pueda retirarlos.
+   * Sin el parámetro, descarga completa (solo activos vivos).
+   */
+  actualizadoDesde: z.string().datetime({ offset: true }).optional(),
 });
 
 export type SesionActivosQuery = z.infer<typeof sesionActivosQuerySchema>;

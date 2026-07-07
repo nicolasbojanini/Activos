@@ -54,6 +54,17 @@ export interface ActivoDetailOutput extends ActivoListItemOutput {
   camposPersonalizados: Record<string, string> | null;
 }
 
+/**
+ * Fila del endpoint de sesión (espejo local móvil). `actualizadoEn` es el
+ * cursor del sync incremental; `eliminado` solo llega en true cuando se pidió
+ * un delta (?actualizadoDesde=...) y el activo fue borrado desde entonces —
+ * la descarga completa nunca incluye borrados.
+ */
+export interface ActivoSesionOutput extends ActivoDetailOutput {
+  actualizadoEn: string;
+  eliminado: boolean;
+}
+
 export interface PaginatedOutput<T> {
   data: T[];
   total: number;

@@ -14,6 +14,7 @@ import { CategoriaIcon } from '../components/CategoriaIcon';
 import { EstadoBadge } from '../components/EstadoBadge';
 import { PrimaryButton } from '../components/PrimaryButton';
 import {
+  actualizarSesionDelta,
   calcularResumenLocal,
   descargarSesion,
   guardarProyectoActivo,
@@ -119,7 +120,10 @@ export function InicioScreen({ navigation }: Props) {
           await descargarSesion(proyecto);
         } else {
           await guardarProyectoActivo(proyecto);
-          await refrescarConfiguracionCampos();
+          // Delta: trae solo lo que cambió en el servidor desde la última
+          // apertura (ediciones web, re-imports, capturas de otros
+          // auditores) en vez de re-descargar el inventario completo.
+          await Promise.all([refrescarConfiguracionCampos(), actualizarSesionDelta(proyecto)]);
         }
         void queryClient.invalidateQueries({ queryKey: ['proyecto-local'] });
         void queryClient.invalidateQueries({ queryKey: ['resumen-local'] });

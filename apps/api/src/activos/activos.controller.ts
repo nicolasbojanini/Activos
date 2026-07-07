@@ -83,7 +83,11 @@ export class ActivosController {
     ) {
       throw new ForbiddenException('No tienes acceso a ese proyecto');
     }
-    return this.activosService.sesionCompleta(tenantPrisma, query.proyectoId);
+    return this.activosService.sesionCompleta(
+      tenantPrisma,
+      query.proyectoId,
+      query.actualizadoDesde,
+    );
   }
 
   @Get(':id')

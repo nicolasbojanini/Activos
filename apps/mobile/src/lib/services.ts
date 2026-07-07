@@ -1,6 +1,7 @@
 import type {
   ActivoDetailOutput,
   ActivoListItemOutput,
+  ActivoSesionOutput,
   AuthTokensOutput,
   CampoPersonalizadoOutput,
   ConfiguracionCampoOutput,
@@ -57,11 +58,15 @@ export function getActivo(id: string) {
   return apiFetch<ActivoDetailOutput>(`/clientes/${clienteId()}/activos/${id}`);
 }
 
-/** Ficha completa de todos los activos del proyecto en una sola llamada — usado al descargar la sesión offline. */
-export function getSesionActivos(proyectoId: string) {
-  return apiFetch<ActivoDetailOutput[]>(
-    `/clientes/${clienteId()}/activos/sesion?proyectoId=${encodeURIComponent(proyectoId)}`,
-  );
+/**
+ * Ficha completa de los activos del proyecto en una sola llamada — usado al
+ * descargar la sesión offline. Con `actualizadoDesde` (cursor ISO) trae solo
+ * el delta desde esa fecha, incluyendo activos borrados (eliminado: true).
+ */
+export function getSesionActivos(proyectoId: string, actualizadoDesde?: string) {
+  const params = new URLSearchParams({ proyectoId });
+  if (actualizadoDesde) params.set('actualizadoDesde', actualizadoDesde);
+  return apiFetch<ActivoSesionOutput[]>(`/clientes/${clienteId()}/activos/sesion?${params.toString()}`);
 }
 
 export function buscarActivoPorCodigo(codigo: string) {

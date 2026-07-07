@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import type {
   ActivoDetailOutput,
   ActivoListItemOutput,
+  ActivoSesionOutput,
   ListActivosQuery,
   PaginatedOutput,
   RegistroHistorialOutput,
@@ -35,6 +36,8 @@ interface ActivoListRow {
 
 interface ActivoSesionRow {
   id: string;
+  updatedAt: Date;
+  deletedAt: Date | null;
   codigoAnterior: string;
   codigoNuevo: string | null;
   codigoControl: string | null;
@@ -182,15 +185,27 @@ export class ActivosService {
    * inventario de miles de activos eso son miles de requests HTTP, que
    * chocan contra el límite global de 100 requests/minuto (ThrottlerModule)
    * y dejan la sesión atascada en "Cargando…" indefinidamente.
+   *
+   * Con `actualizadoDesde` (cursor ISO) responde solo el DELTA: activos con
+   * updatedAt >= cursor, incluyendo los borrados (eliminado: true) para que
+   * el espejo local pueda retirarlos. Se usa >= a propósito: el móvil guarda
+   * como cursor el mayor updatedAt recibido, y re-traer la fila de frontera
+   * es inofensivo (el upsert local es idempotente) mientras que > podría
+   * saltarse un cambio ocurrido en el mismo milisegundo.
    */
   async sesionCompleta(
     tenantPrisma: TenantPrismaClient,
     proyectoId: string,
-  ): Promise<ActivoDetailOutput[]> {
+    actualizadoDesde?: string,
+  ): Promise<ActivoSesionOutput[]> {
     const proyecto = await this.proyectosService.findOne(
       tenantPrisma,
       proyectoId,
     );
+
+    const condicion = actualizadoDesde
+      ? Prisma.sql`a."updatedAt" >= ${new Date(actualizadoDesde)}`
+      : Prisma.sql`a."deletedAt" IS NULL`;
 
     const filas = await tenantPrisma.$queryRaw<ActivoSesionRow[]>`
       WITH ultimo AS (
@@ -200,7 +215,8 @@ export class ActivosService {
         ORDER BY "activoId", "auditadoEn" DESC, id DESC
       )
       SELECT
-        a.id, a."codigoNuevo", a."codigoAnterior", a."codigoControl", a.nombre,
+        a.id, a."updatedAt", a."deletedAt",
+        a."codigoNuevo", a."codigoAnterior", a."codigoControl", a.nombre,
         a.descripcion, a.categoria, a.color, a.medidas, a.capacidad, a.marca,
         a.modelo, a.serie, a.responsable, a."centroCosto", a."estadoFisico",
         a."fechaAdquisicion", a."valorLibros", a.proveedor, a."vidaUtilMeses",
@@ -212,7 +228,7 @@ export class ActivosService {
       FROM "Activo" a
       LEFT JOIN "Ubicacion" u ON u.id = a."ubicacionId"
       LEFT JOIN ultimo ON ultimo."activoId" = a.id
-      WHERE a."deletedAt" IS NULL
+      WHERE ${condicion}
       ORDER BY a."codigoAnterior" ASC
     `;
 
@@ -223,6 +239,8 @@ export class ActivosService {
 
     return filas.map((f) => ({
       id: f.id,
+      actualizadoEn: new Date(f.updatedAt).toISOString(),
+      eliminado: f.deletedAt != null,
       codigoNuevo: f.codigoNuevo,
       codigoAnterior: f.codigoAnterior,
       codigoControl: f.codigoControl,

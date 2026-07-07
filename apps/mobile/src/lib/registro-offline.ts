@@ -1,4 +1,5 @@
 import { eq } from 'drizzle-orm';
+import { uploadAsync } from 'expo-file-system/legacy';
 import type { RegistroAuditoriaInput } from '@adn/shared';
 import { db } from '../db/client';
 import { activosLocal, colaRegistros } from '../db/schema';
@@ -59,20 +60,21 @@ async function subirYConfirmarFotos(
 
   // Subir en paralelo, no una por una — con 4 fotos por activo, subirlas
   // secuencialmente en una red de celular es lo que hacía que confirmar un
-  // activo se sintiera lento (~1 minuto).
+  // activo se sintiera lento (~1 minuto). uploadAsync transmite el archivo
+  // directo desde disco (nativo), sin materializar los ~400KB de cada JPEG
+  // como Uint8Array en el heap de JS — con varias fotos en paralelo eso
+  // eran picos de memoria innecesarios en teléfonos de gama baja.
   const resultados = await Promise.all(
     uploads.map(async (upload) => {
       const archivo = archivoLocalFoto(upload.clientPhotoId);
       if (!archivo.exists) return null; // ya se subió antes o no aplica
 
       const metadata = fotosLocal.find((f) => f.clientPhotoId === upload.clientPhotoId);
-      const bytes = await archivo.bytes();
-      const respuesta = await fetch(upload.uploadUrl, {
-        method: 'PUT',
+      const respuesta = await uploadAsync(upload.uploadUrl, archivo.uri, {
+        httpMethod: 'PUT',
         headers: { 'Content-Type': 'image/jpeg' },
-        body: bytes,
       });
-      if (!respuesta.ok) return undefined;
+      if (respuesta.status < 200 || respuesta.status >= 300) return undefined;
 
       return {
         clientPhotoId: upload.clientPhotoId,
@@ -142,14 +144,24 @@ export interface ResultadoSincronizacion {
   fallidos: number;
 }
 
-/** Recorre toda la cola pendiente e intenta sincronizar cada mutación (idempotente por clientId). */
+/**
+ * Recorre toda la cola pendiente e intenta sincronizar cada mutación
+ * (idempotente por clientId). En lotes de 4 concurrentes: tras una mañana
+ * sin señal la cola puede traer decenas de registros y subirlos en serie es
+ * ~4× más lento; no más de 4 a la vez para no acercarse al rate limit
+ * global de la API (100 req/min) contando las subidas de fotos.
+ */
 export async function sincronizarPendientes(): Promise<ResultadoSincronizacion> {
   const pendientes = await db.select().from(colaRegistros).where(eq(colaRegistros.synced, 0));
 
+  const CONCURRENCIA = 4;
   let exitosos = 0;
-  for (const fila of pendientes) {
-    const ok = await intentarSincronizar(fila.clientId, filaAEncolarInput(fila));
-    if (ok) exitosos++;
+  for (let i = 0; i < pendientes.length; i += CONCURRENCIA) {
+    const lote = pendientes.slice(i, i + CONCURRENCIA);
+    const resultados = await Promise.all(
+      lote.map((fila) => intentarSincronizar(fila.clientId, filaAEncolarInput(fila))),
+    );
+    exitosos += resultados.filter(Boolean).length;
   }
 
   return { intentados: pendientes.length, exitosos, fallidos: pendientes.length - exitosos };

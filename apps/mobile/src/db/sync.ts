@@ -1,9 +1,11 @@
 import { eq, and, or, asc, inArray, sql } from 'drizzle-orm';
 import type {
+  ActivoSesionOutput,
   CampoPersonalizadoOutput,
   ConfiguracionCampoOutput,
   EstadoAuditoria,
   ProyectoOutput,
+  UbicacionOutput,
 } from '@adn/shared';
 import { db } from './client';
 import { activosLocal, colaRegistros, metaSesion, ubicacionesLocal } from './schema';
@@ -11,6 +13,7 @@ import { getConfiguracionCampos, getSesionActivos, getUbicaciones } from '../lib
 
 const CLAVE_PROYECTO_ACTIVO = 'proyectoActivo';
 const CLAVE_CONFIGURACION_CAMPOS = 'configuracionCampos';
+const CLAVE_CURSOR_ACTIVOS = 'cursorActivos';
 
 export interface ConfiguracionCamposLocal {
   campos: ConfiguracionCampoOutput[];
@@ -65,17 +68,9 @@ export async function refrescarConfiguracionCampos() {
  * dejan la sesión atascada en "Cargando…" para siempre. `getSesionActivos`
  * trae la ficha completa de todo el proyecto en una sola llamada.
  */
-export async function descargarSesion(proyecto: ProyectoOutput) {
-  const proyectoId = proyecto.id;
-  // Las tres descargas no dependen entre sí — en paralelo, el tiempo total es
-  // el de la más lenta (la sesión de activos) en vez de la suma de las tres.
-  const [ubicaciones, configuracionCampos, fichasCompletas] = await Promise.all([
-    getUbicaciones(),
-    getConfiguracionCampos(),
-    getSesionActivos(proyectoId),
-  ]);
-
-  const filas = fichasCompletas.map((activo) => ({
+/** Mapea la ficha que devuelve la API al esquema de la tabla local. */
+function aFilaLocal(activo: ActivoSesionOutput) {
+  return {
     id: activo.id,
     // '' en vez de null: en instalaciones viejas la columna codigo_nuevo
     // todavía tiene NOT NULL (SQLite no permite quitarlo con ALTER
@@ -104,7 +99,50 @@ export async function descargarSesion(proyecto: ProyectoOutput) {
     camposPersonalizadosJson: activo.camposPersonalizados ? JSON.stringify(activo.camposPersonalizados) : null,
     estadoServidor: activo.estado,
     ultimoAuditorServidor: activo.ultimoAuditor,
-  }));
+  };
+}
+
+/** Mayor updatedAt recibido — es el cursor del próximo delta. null si no llegaron filas. */
+function mayorCursor(fichas: ActivoSesionOutput[]): string | null {
+  let mayor: string | null = null;
+  for (const f of fichas) {
+    if (!mayor || f.actualizadoEn > mayor) mayor = f.actualizadoEn;
+  }
+  return mayor;
+}
+
+async function guardarCursorActivos(cursor: string) {
+  await db
+    .insert(metaSesion)
+    .values({ clave: CLAVE_CURSOR_ACTIVOS, valor: cursor })
+    .onConflictDoUpdate({ target: metaSesion.clave, set: { valor: cursor } });
+}
+
+async function obtenerCursorActivos(): Promise<string | null> {
+  const [fila] = await db.select().from(metaSesion).where(eq(metaSesion.clave, CLAVE_CURSOR_ACTIVOS));
+  return fila?.valor ?? null;
+}
+
+function refrescarUbicacionesLocal(tx: Parameters<Parameters<typeof db.transaction>[0]>[0], ubicaciones: UbicacionOutput[]) {
+  tx.delete(ubicacionesLocal).run();
+  if (ubicaciones.length > 0) {
+    tx.insert(ubicacionesLocal)
+      .values(ubicaciones.map((u) => ({ id: u.id, codigo: u.codigo, sede: u.sede, detalle: u.detalle })))
+      .run();
+  }
+}
+
+export async function descargarSesion(proyecto: ProyectoOutput) {
+  const proyectoId = proyecto.id;
+  // Las tres descargas no dependen entre sí — en paralelo, el tiempo total es
+  // el de la más lenta (la sesión de activos) en vez de la suma de las tres.
+  const [ubicaciones, configuracionCampos, fichasCompletas] = await Promise.all([
+    getUbicaciones(),
+    getConfiguracionCampos(),
+    getSesionActivos(proyectoId),
+  ]);
+
+  const filas = fichasCompletas.map(aFilaLocal);
 
   // El driver expo-sqlite de drizzle es síncrono: la transacción única evita
   // un fsync por fila, y el insert multi-fila evita preparar miles de
@@ -113,13 +151,7 @@ export async function descargarSesion(proyecto: ProyectoOutput) {
   const LOTE = 500;
   db.transaction((tx) => {
     tx.delete(activosLocal).run();
-    tx.delete(ubicacionesLocal).run();
-
-    if (ubicaciones.length > 0) {
-      tx.insert(ubicacionesLocal)
-        .values(ubicaciones.map((u) => ({ id: u.id, codigo: u.codigo, sede: u.sede, detalle: u.detalle })))
-        .run();
-    }
+    refrescarUbicacionesLocal(tx, ubicaciones);
 
     for (let i = 0; i < filas.length; i += LOTE) {
       tx.insert(activosLocal).values(filas.slice(i, i + LOTE)).run();
@@ -128,6 +160,50 @@ export async function descargarSesion(proyecto: ProyectoOutput) {
 
   await guardarProyectoActivo(proyecto);
   await guardarConfiguracionCampos(configuracionCampos);
+  const cursor = mayorCursor(fichasCompletas);
+  if (cursor) await guardarCursorActivos(cursor);
+}
+
+/**
+ * Sync incremental del espejo local: pide solo los activos que cambiaron en
+ * el servidor desde el último cursor (ediciones desde la web, re-imports del
+ * Excel, capturas de OTROS auditores) y los upserta/borra localmente, sin
+ * re-descargar el inventario completo. Si no hay cursor (instalación que
+ * descargó la sesión antes de que existiera esta función), hace una descarga
+ * completa una vez para plantarlo.
+ */
+export async function actualizarSesionDelta(proyecto: ProyectoOutput) {
+  const cursor = await obtenerCursorActivos();
+  if (!cursor) {
+    await descargarSesion(proyecto);
+    return;
+  }
+
+  const [ubicaciones, fichas] = await Promise.all([
+    getUbicaciones(),
+    getSesionActivos(proyecto.id, cursor),
+  ]);
+
+  db.transaction((tx) => {
+    // Las ubicaciones no tienen cursor propio: son pocas, refrescarlas
+    // enteras en cada apertura cuesta casi nada.
+    refrescarUbicacionesLocal(tx, ubicaciones);
+
+    for (const ficha of fichas) {
+      if (ficha.eliminado) {
+        tx.delete(activosLocal).where(eq(activosLocal.id, ficha.id)).run();
+        continue;
+      }
+      const fila = aFilaLocal(ficha);
+      tx.insert(activosLocal)
+        .values(fila)
+        .onConflictDoUpdate({ target: activosLocal.id, set: fila })
+        .run();
+    }
+  });
+
+  const nuevoCursor = mayorCursor(fichas);
+  if (nuevoCursor && nuevoCursor > cursor) await guardarCursorActivos(nuevoCursor);
 }
 
 export async function haySesionDescargada(): Promise<boolean> {
