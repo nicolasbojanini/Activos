@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronLeft, Trash2 } from 'lucide-react';
@@ -25,6 +25,9 @@ export function ConfigurarCampos() {
   const [campos, setCampos] = useState<CampoEstado[] | null>(null);
   const [nuevaEtiqueta, setNuevaEtiqueta] = useState('');
   const [nuevoRequerido, setNuevoRequerido] = useState(false);
+  // Recuerda para qué cliente ya se hidrató `campos`, para hidratar una sola
+  // vez por cliente en vez de en cada refetch.
+  const hidratadoPara = useRef<string | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ['configuracion-campos', clienteId],
@@ -33,8 +36,17 @@ export function ConfigurarCampos() {
   });
 
   useEffect(() => {
-    if (data) setCampos(data.campos.map((c) => ({ campo: c.campo, etiqueta: c.etiqueta, visible: c.visible, requerido: c.requerido })));
-  }, [data]);
+    // Los campos personalizados (crear/editar/borrar) y "Guardar configuración"
+    // invalidan esta misma query y disparan un refetch — si se re-sincronizara
+    // `campos` en cada uno, se perdían los cambios sin guardar de los campos
+    // estándar (por eso antes había que editar los personalizados ANTES que
+    // los estándar). Solo se hidrata una vez por cliente; de ahí en adelante
+    // el estado local + "Guardar configuración" son la única fuente de verdad.
+    if (data && hidratadoPara.current !== clienteId) {
+      setCampos(data.campos.map((c) => ({ campo: c.campo, etiqueta: c.etiqueta, visible: c.visible, requerido: c.requerido })));
+      hidratadoPara.current = clienteId ?? null;
+    }
+  }, [data, clienteId]);
 
   const guardarMutation = useMutation({
     mutationFn: () =>

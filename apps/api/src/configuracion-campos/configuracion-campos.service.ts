@@ -16,7 +16,14 @@ import { ControlPrismaService } from '../prisma/control-prisma.service';
 export class ConfiguracionCamposService {
   constructor(private readonly control: ControlPrismaService) {}
 
-  /** Combina el catálogo fijo con los overrides guardados del cliente (si los hay). */
+  /**
+   * Combina el catálogo fijo con los overrides guardados del cliente (si los
+   * hay). El campo identidad ignora cualquier override guardado — siempre
+   * visible/obligatorio — por si quedó una fila vieja de antes de que ese
+   * campo fuera la identidad (`actualizar()` ya rechaza escribir una fila así
+   * hacia adelante, pero esto blinda también la lectura de una que haya
+   * quedado de antes).
+   */
   async obtenerCampos(clienteId: string) {
     const guardados = await this.control.configuracionCampo.findMany({
       where: { clienteId },
@@ -24,6 +31,16 @@ export class ConfiguracionCamposService {
     const guardadosPorCampo = new Map(guardados.map((g) => [g.campo, g]));
 
     return CAMPOS_ACTIVO_CATALOGO.map((catalogo) => {
+      if (catalogo.campo === CAMPO_IDENTIDAD) {
+        return {
+          campo: catalogo.campo,
+          etiqueta: catalogo.etiqueta,
+          tipo: catalogo.tipo,
+          visible: true,
+          requerido: true,
+          orden: guardadosPorCampo.get(catalogo.campo)?.orden ?? 0,
+        };
+      }
       const override = guardadosPorCampo.get(catalogo.campo);
       return {
         campo: catalogo.campo,
