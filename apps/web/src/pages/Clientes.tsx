@@ -156,6 +156,17 @@ export function Clientes() {
                   )}
                 </div>
               )}
+
+              {estadoMutation.isError && estadoMutation.variables?.id === cliente.id && (
+                <p style={{ fontSize: 12, color: 'var(--adn-danger)', margin: '8px 0 0' }}>
+                  {estadoMutation.error instanceof ApiError ? estadoMutation.error.message : 'No se pudo actualizar el estado'}
+                </p>
+              )}
+              {eliminarMutation.isError && eliminarMutation.variables === cliente.id && (
+                <p style={{ fontSize: 12, color: 'var(--adn-danger)', margin: '8px 0 0' }}>
+                  {eliminarMutation.error instanceof ApiError ? eliminarMutation.error.message : 'No se pudo eliminar el cliente'}
+                </p>
+              )}
             </div>
           );
         })}

@@ -79,6 +79,12 @@ export class ClientesService {
 
     await this.control.$transaction([
       this.control.asignacionProyecto.deleteMany({ where: { clienteId } }),
+      // Sin esto, Postgres rechaza el delete de Cliente por la FK obligatoria
+      // (RESTRICT) apenas el cliente tiene alguna configuración de campos
+      // guardada — que hoy es casi siempre, ya que "Guardar configuración"
+      // crea filas incluso para dejar un campo en su valor por defecto.
+      this.control.configuracionCampo.deleteMany({ where: { clienteId } }),
+      this.control.campoPersonalizado.deleteMany({ where: { clienteId } }),
       this.control.cliente.delete({ where: { id: clienteId } }),
     ]);
   }
