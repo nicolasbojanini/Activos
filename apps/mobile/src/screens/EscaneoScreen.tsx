@@ -4,8 +4,8 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import { X, Keyboard } from 'lucide-react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { colors, radius, spacing } from '@adn/ui-tokens';
-import { buscarActivoPorCodigo, buscarUbicacionPorCodigo } from '../lib/services';
-import { buscarActivoLocalPorCodigo, buscarUbicacionLocalPorCodigo } from '../db/sync';
+import { buscarActivoPorCodigo } from '../lib/services';
+import { buscarActivoLocalPorCodigo } from '../db/sync';
 import { useUbicacionActivaStore } from '../lib/ubicacion-activa-store';
 import { ApiError } from '../lib/api';
 import { PrimaryButton } from '../components/PrimaryButton';
@@ -15,10 +15,9 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Escaneo'>;
 
 const VISOR_SIZE = 240;
 
-export function EscaneoScreen({ route, navigation }: Props) {
-  const modo = route.params?.modo ?? 'activo';
+export function EscaneoScreen({ navigation }: Props) {
   const ubicacionActiva = useUbicacionActivaStore((s) => s.ubicacionActiva);
-  const requiereUbicacion = modo === 'activo' && !ubicacionActiva;
+  const requiereUbicacion = !ubicacionActiva;
   const [permission, requestPermission] = useCameraPermissions();
   const [locked, setLocked] = useState(false);
   const [manualVisible, setManualVisible] = useState(false);
@@ -32,14 +31,15 @@ export function EscaneoScreen({ route, navigation }: Props) {
     }
   }, [permission, requestPermission]);
 
-  // No se audita un activo sin saber en qué ubicación está — obliga a escanear
-  // la ubicación primero en vez de dejar crear/actualizar activos "sueltos".
+  // No se audita un activo sin saber en qué ubicación está — obliga a
+  // escribir la ubicación activa primero en vez de dejar crear/actualizar
+  // activos "sueltos".
   useEffect(() => {
     if (!requiereUbicacion) return;
     Alert.alert(
-      'Escanea primero la ubicación',
-      'Antes de escanear un activo, escanea el código QR de la ubicación donde te encuentras.',
-      [{ text: 'Entendido', onPress: () => navigation.replace('Escaneo', { modo: 'ubicacion' }) }],
+      'Escribe primero la ubicación',
+      'Antes de escanear un activo, escribe en qué ubicación te encuentras.',
+      [{ text: 'Entendido', onPress: () => navigation.replace('Ubicacion') }],
     );
   }, [requiereUbicacion, navigation]);
 
@@ -54,33 +54,7 @@ export function EscaneoScreen({ route, navigation }: Props) {
     return () => loop.stop();
   }, [scanLine]);
 
-  const resolverCodigoUbicacion = async (codigo: string) => {
-    setError(null);
-
-    const local = await buscarUbicacionLocalPorCodigo(codigo);
-    if (local) {
-      useUbicacionActivaStore.getState().setUbicacionActiva(local);
-      navigation.replace('Inicio');
-      return;
-    }
-
-    try {
-      const ubicacion = await buscarUbicacionPorCodigo(codigo);
-      useUbicacionActivaStore.getState().setUbicacionActiva(ubicacion);
-      navigation.replace('Inicio');
-    } catch (err) {
-      if (err instanceof ApiError && err.status !== 404) {
-        setError('No se pudo resolver el código. Intenta de nuevo.');
-        setLocked(false);
-        return;
-      }
-      // 404: puede ser una ubicación física nueva (sede recién habilitada) — se ofrece
-      // el flujo de alta en vez de solo bloquear al auditor con un error.
-      navigation.replace('UbicacionNoRegistrada', { codigo });
-    }
-  };
-
-  const resolverCodigoActivo = async (codigo: string) => {
+  const resolverCodigo = async (codigo: string) => {
     setError(null);
 
     // Offline-first: primero se busca en el espejo local descargado al iniciar sesión.
@@ -105,9 +79,6 @@ export function EscaneoScreen({ route, navigation }: Props) {
     }
   };
 
-  const resolverCodigo = (codigo: string) =>
-    modo === 'ubicacion' ? resolverCodigoUbicacion(codigo) : resolverCodigoActivo(codigo);
-
   const handleScanned = ({ data }: { data: string }) => {
     if (locked || requiereUbicacion) return;
     setLocked(true);
@@ -127,11 +98,7 @@ export function EscaneoScreen({ route, navigation }: Props) {
         />
       ) : (
         <View style={styles.permisoDenegado}>
-          <Text style={styles.permisoTexto}>
-            {modo === 'ubicacion'
-              ? 'Necesitamos acceso a la cámara para escanear el código QR de la ubicación.'
-              : 'Necesitamos acceso a la cámara para escanear el código QR del activo.'}
-          </Text>
+          <Text style={styles.permisoTexto}>Necesitamos acceso a la cámara para escanear el código QR del activo.</Text>
           <PrimaryButton label="Solicitar permiso" onPress={() => void requestPermission()} />
         </View>
       )}
@@ -152,13 +119,7 @@ export function EscaneoScreen({ route, navigation }: Props) {
           <View style={[styles.corner, styles.cornerBR]} />
           <Animated.View style={[styles.scanLine, { transform: [{ translateY }] }]} />
         </View>
-        <Text style={styles.detectando}>
-          {locked
-            ? 'Resolviendo…'
-            : modo === 'ubicacion'
-              ? 'Detectando código de ubicación…'
-              : 'Detectando código QR…'}
-        </Text>
+        <Text style={styles.detectando}>{locked ? 'Resolviendo…' : 'Detectando código QR…'}</Text>
         {error && <Text style={styles.errorTexto}>{error}</Text>}
 
         <Pressable style={styles.manualButton} onPress={() => setManualVisible(true)}>
@@ -174,7 +135,7 @@ export function EscaneoScreen({ route, navigation }: Props) {
             <TextInput
               value={manualCodigo}
               onChangeText={setManualCodigo}
-              placeholder={modo === 'ubicacion' ? 'Código de la ubicación' : 'Código del activo'}
+              placeholder="Código del activo"
               autoCapitalize="characters"
               style={styles.modalInput}
             />

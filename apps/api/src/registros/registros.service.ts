@@ -15,6 +15,7 @@ import type {
 } from '../../generated/tenant-client';
 import { ProyectosService } from '../proyectos/proyectos.service';
 import { S3Service } from '../files/s3.service';
+import { resolverUbicacionIdPorNombre } from '../ubicaciones/resolver-ubicacion-por-nombre';
 
 export interface UploadEntry {
   clientPhotoId: string;
@@ -285,6 +286,18 @@ export class RegistrosService {
         if (campo === 'ubicacionId') {
           data.ubicacion = despues
             ? { connect: { id: despues as string } }
+            : { disconnect: true };
+        } else if (campo === 'ubicacionNombre') {
+          // Ubicación activa móvil: el auditor la escribe a mano, sin
+          // escanear ni validar contra la base (funciona offline) — acá,
+          // con red y DB disponibles, se resuelve o crea la Ubicacion por
+          // nombre (case-insensitive) y recién ahí se conecta al activo.
+          data.ubicacion = despues
+            ? {
+                connect: {
+                  id: await resolverUbicacionIdPorNombre(tx, despues as string),
+                },
+              }
             : { disconnect: true };
         } else if (campo === 'nombre') {
           if (despues) data.nombre = despues;

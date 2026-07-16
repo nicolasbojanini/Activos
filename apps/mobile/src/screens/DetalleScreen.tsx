@@ -87,7 +87,7 @@ export function DetalleScreen({ route, navigation }: Props) {
   const enviarRegistro = async (estado: 'AUDITADO' | 'FALTANTE') => {
     if (!proyecto || !resultado) return;
     setEnviando(true);
-    const reubicacion = calcularReubicacionAutomatica(resultado.activo.ubicacionId);
+    const reubicacion = calcularReubicacionAutomatica(resultado.activo.ubicacionSede);
     // Un cambio de ubicación es una diferencia real; solo se escala el confirm rápido
     // ("coincide") — un FALTANTE queda igual, aunque el diff se adjunta por trazabilidad.
     const estadoFinal = reubicacion && estado === 'AUDITADO' ? 'DIFERENCIA' : estado;

@@ -134,29 +134,89 @@ export class ReportesService {
   ) {}
 
   /**
-   * ZIP con las fotos confirmadas del último registro de cada activo del
-   * proyecto (activos sin fotos se omiten). Nombre de archivo:
-   * `{codigoAnterior}-{consecutivo}.jpg`, consecutivo = orden + 1 dentro de ese activo.
+   * ZIP con fotos confirmadas del proyecto.
+   *
+   * Sin `desde`/`hasta`: comportamiento original — solo el último registro
+   * de cada activo (una foto por activo por slot, sin importar cuántas
+   * auditorías tenga en su historial). Nombre de archivo:
+   * `{codigoAnterior}-{consecutivo}.jpg`.
+   *
+   * Con `desde`/`hasta` (filtro por fecha de captura / auditadoEn): TODOS
+   * los registros del proyecto cuya auditoría cayó en ese rango, sin
+   * limitarse al último por activo — es lo que permite descargar un
+   * proyecto grande en tandas (ej. "lo capturado esta semana") sin huecos
+   * ni duplicados entre una descarga y la siguiente. Como un mismo activo
+   * puede tener más de un registro dentro del rango, acá el nombre incluye
+   * la fecha de esa auditoría para no pisar un archivo con otro:
+   * `{codigoAnterior}-{fecha}-{consecutivo}.jpg`.
    */
   async generarZipFotos(
     tenantPrisma: TenantPrismaClient,
     proyectoId: string,
+    rango?: { desde?: string; hasta?: string },
   ): Promise<{ archive: Archiver; filename: string }> {
     const proyecto = await this.proyectosService.findOne(
       tenantPrisma,
       proyectoId,
     );
-    const ultimoPorActivo = await this.proyectosService.ultimoRegistroPorActivo(
-      tenantPrisma,
-      proyecto.id,
-    );
 
-    const activos = await tenantPrisma.activo.findMany({
-      where: { deletedAt: null, id: { in: [...ultimoPorActivo.keys()] } },
-      select: { id: true, codigoAnterior: true },
-    });
+    const filtraPorFecha = !!(rango?.desde || rango?.hasta);
 
-    const registroIds = [...ultimoPorActivo.values()].map((r) => r.id);
+    interface RegistroParaZip {
+      id: string;
+      codigoAnterior: string;
+      auditadoEn: Date | null;
+    }
+
+    let registros: RegistroParaZip[];
+    if (filtraPorFecha) {
+      const filas = await tenantPrisma.registroAuditoria.findMany({
+        where: {
+          proyectoId: proyecto.id,
+          activoId: { not: null },
+          auditadoEn: {
+            gte: rango?.desde ? new Date(rango.desde) : undefined,
+            lte: rango?.hasta ? new Date(rango.hasta) : undefined,
+          },
+        },
+        select: {
+          id: true,
+          auditadoEn: true,
+          activo: { select: { codigoAnterior: true } },
+        },
+      });
+      registros = filas
+        .filter((f) => f.activo)
+        .map((f) => ({
+          id: f.id,
+          codigoAnterior: f.activo!.codigoAnterior,
+          auditadoEn: f.auditadoEn,
+        }));
+    } else {
+      const ultimoPorActivo =
+        await this.proyectosService.ultimoRegistroPorActivo(
+          tenantPrisma,
+          proyecto.id,
+        );
+      const activos = await tenantPrisma.activo.findMany({
+        where: { deletedAt: null, id: { in: [...ultimoPorActivo.keys()] } },
+        select: { id: true, codigoAnterior: true },
+      });
+      registros = activos
+        .map((activo): RegistroParaZip | null => {
+          const registro = ultimoPorActivo.get(activo.id);
+          return registro
+            ? {
+                id: registro.id,
+                codigoAnterior: activo.codigoAnterior,
+                auditadoEn: null,
+              }
+            : null;
+        })
+        .filter((r): r is RegistroParaZip => r !== null);
+    }
+
+    const registroIds = registros.map((r) => r.id);
     const fotos =
       registroIds.length > 0
         ? await tenantPrisma.foto.findMany({
@@ -173,15 +233,15 @@ export class ReportesService {
 
     const archive = new ZipArchive({ zlib: { level: 9 } });
 
-    for (const activo of activos) {
-      const registro = ultimoPorActivo.get(activo.id);
-      if (!registro) continue;
-      const fotosDelActivo = fotosPorRegistro.get(registro.id) ?? [];
-      for (const foto of fotosDelActivo) {
+    for (const registro of registros) {
+      const fotosDelRegistro = fotosPorRegistro.get(registro.id) ?? [];
+      const fecha = registro.auditadoEn?.toISOString().slice(0, 10);
+      for (const foto of fotosDelRegistro) {
         const bytes = await this.s3.descargarObjeto(foto.s3Key);
-        archive.append(bytes, {
-          name: `${activo.codigoAnterior}-${foto.orden + 1}.jpg`,
-        });
+        const nombre = fecha
+          ? `${registro.codigoAnterior}-${fecha}-${foto.orden + 1}.jpg`
+          : `${registro.codigoAnterior}-${foto.orden + 1}.jpg`;
+        archive.append(bytes, { name: nombre });
       }
     }
 
@@ -190,7 +250,10 @@ export class ReportesService {
     const nombreArchivo = proyecto.nombre
       .replace(/[^a-z0-9]+/gi, '-')
       .toLowerCase();
-    return { archive, filename: `fotos-${nombreArchivo}.zip` };
+    const sufijoRango = filtraPorFecha
+      ? `-${(rango?.desde ?? 'inicio').slice(0, 10)}_a_${(rango?.hasta ?? 'hoy').slice(0, 10)}`
+      : '';
+    return { archive, filename: `fotos-${nombreArchivo}${sufijoRango}.zip` };
   }
 
   async generar(

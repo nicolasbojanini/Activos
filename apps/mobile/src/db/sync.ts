@@ -302,23 +302,6 @@ export async function buscarActivoLocalPorCodigo(codigo: string) {
   return activo ?? null;
 }
 
-export async function listarUbicacionesLocal() {
-  return db.select().from(ubicacionesLocal);
-}
-
-export async function buscarUbicacionLocalPorCodigo(codigo: string) {
-  const [ubicacion] = await db.select().from(ubicacionesLocal).where(eq(ubicacionesLocal.codigo, codigo));
-  return ubicacion ?? null;
-}
-
-/** Cachea localmente una ubicación creada al vuelo, para que futuras búsquedas offline la encuentren. */
-export async function guardarUbicacionLocal(ubicacion: { id: string; codigo: string; sede: string; detalle: string | null }) {
-  await db
-    .insert(ubicacionesLocal)
-    .values(ubicacion)
-    .onConflictDoUpdate({ target: ubicacionesLocal.id, set: ubicacion });
-}
-
 export interface ResumenLocal {
   total: number;
   pendientes: number;

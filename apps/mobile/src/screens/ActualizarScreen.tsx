@@ -9,7 +9,7 @@ import * as Crypto from 'expo-crypto';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { CategoriaActivo, EstadoFisico } from '@adn/shared';
 import { colors, radius, spacing } from '@adn/ui-tokens';
-import { obtenerActivoLocal, listarUbicacionesLocal } from '../db/sync';
+import { obtenerActivoLocal } from '../db/sync';
 import { useProyectoActual } from '../lib/useProyectoActual';
 import { useConfiguracionCampos } from '../lib/useConfiguracionCampos';
 import { encolarRegistro } from '../lib/registro-offline';
@@ -18,7 +18,7 @@ import { useUbicacionActivaStore } from '../lib/ubicacion-activa-store';
 import { capturarFoto, eliminarFotoLocal, type FotoCapturada } from '../lib/fotos';
 import { HeaderBar } from '../components/HeaderBar';
 import { PrimaryButton } from '../components/PrimaryButton';
-import { FotosGrid } from '../components/FotosGrid';
+import { FotosGrid, ORDEN_FOTO_OBLIGATORIA } from '../components/FotosGrid';
 import type { RootStackParamList } from '../navigation/types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Actualizar'>;
@@ -92,7 +92,7 @@ function valorActualCampoExtra(activo: ActivoLocal, campo: string): string {
 
 const formSchema = z.object({
   estadoFisico: z.nativeEnum(EstadoFisico),
-  ubicacionId: z.string().nullable(),
+  ubicacionTexto: z.string(),
   responsable: z.string().nullable(),
   centroCosto: z.string().nullable(),
   nota: z.string(),
@@ -132,7 +132,6 @@ export function ActualizarScreen({ route, navigation }: Props) {
     queryKey: ['activo-local', activoId],
     queryFn: () => obtenerActivoLocal(activoId),
   });
-  const { data: ubicaciones } = useQuery({ queryKey: ['ubicaciones-local'], queryFn: listarUbicacionesLocal });
 
   const {
     control,
@@ -141,21 +140,22 @@ export function ActualizarScreen({ route, navigation }: Props) {
     formState: { errors },
   } = useForm<FormValues>({
     resolver: zodResolver(formSchema),
-    defaultValues: { estadoFisico: 'BUENO', ubicacionId: null, responsable: '', centroCosto: '', nota: '' },
+    defaultValues: { estadoFisico: 'BUENO', ubicacionTexto: '', responsable: '', centroCosto: '', nota: '' },
   });
 
   useEffect(() => {
     if (resultado) {
-      // Si hay una ubicación activa en la sesión de escaneo y difiere de la guardada,
-      // se preselecciona en el chip para que el auditor la vea reflejada antes de enviar
-      // (en vez de que sea una sobreescritura silenciosa al guardar).
+      // Si hay una ubicación activa en la sesión y difiere de la guardada, se
+      // precarga en el campo para que el auditor la vea reflejada antes de
+      // enviar (en vez de que sea una sobreescritura silenciosa al guardar).
       const ubicacionPorDefecto =
-        ubicacionActiva && ubicacionActiva.id !== resultado.activo.ubicacionId
-          ? ubicacionActiva.id
-          : resultado.activo.ubicacionId;
+        ubicacionActiva &&
+        ubicacionActiva.sede.trim().toLowerCase() !== (resultado.activo.ubicacionSede ?? '').trim().toLowerCase()
+          ? ubicacionActiva.sede
+          : (resultado.activo.ubicacionSede ?? '');
       reset({
         estadoFisico: resultado.activo.estadoFisico as FormValues['estadoFisico'],
-        ubicacionId: ubicacionPorDefecto,
+        ubicacionTexto: ubicacionPorDefecto,
         responsable: resultado.activo.responsable ?? '',
         centroCosto: resultado.activo.centroCosto ?? '',
         nota: '',
@@ -198,7 +198,7 @@ export function ActualizarScreen({ route, navigation }: Props) {
           valor = values.estadoFisico;
           break;
         case 'ubicacion':
-          valor = values.ubicacionId;
+          valor = values.ubicacionTexto;
           break;
         case 'responsable':
           valor = values.responsable;
@@ -221,6 +221,9 @@ export function ActualizarScreen({ route, navigation }: Props) {
       if (!cp.requerido) continue;
       if (vacio(valoresExtra[`${PREFIJO_CAMPO_PERSONALIZADO}${cp.id}`])) faltantes.push(cp.etiqueta);
     }
+    if (!fotos.some((f) => f.orden === ORDEN_FOTO_OBLIGATORIA)) {
+      faltantes.push('Foto: vista general');
+    }
     if (faltantes.length > 0) {
       Alert.alert('Completa los campos obligatorios', faltantes.join(', '));
       return;
@@ -231,13 +234,14 @@ export function ActualizarScreen({ route, navigation }: Props) {
 
     const cambios: Record<string, { antes: unknown; despues: unknown }> = {};
     // La reubicación automática (ubicación activa de la sesión) tiene prioridad sobre el
-    // picker manual: refleja dónde está parado el auditor, más autoritativo que un valor
+    // campo manual: refleja dónde está parado el auditor, más autoritativo que un valor
     // de formulario que pudo quedarse igual por descuido.
-    const reubicacion = calcularReubicacionAutomatica(activo.ubicacionId);
+    const reubicacion = calcularReubicacionAutomatica(activo.ubicacionSede);
+    const ubicacionActualTexto = (activo.ubicacionSede ?? '').trim();
     if (reubicacion) {
-      cambios.ubicacionId = reubicacion.ubicacionId;
-    } else if (values.ubicacionId !== activo.ubicacionId) {
-      cambios.ubicacionId = { antes: activo.ubicacionId, despues: values.ubicacionId };
+      cambios.ubicacionNombre = reubicacion.ubicacionNombre;
+    } else if (values.ubicacionTexto.trim().toLowerCase() !== ubicacionActualTexto.toLowerCase()) {
+      cambios.ubicacionNombre = { antes: activo.ubicacionSede, despues: values.ubicacionTexto.trim() || null };
     }
     if ((values.responsable || null) !== (activo.responsable ?? null)) {
       cambios.responsable = { antes: activo.responsable, despues: values.responsable || null };
@@ -362,19 +366,9 @@ export function ActualizarScreen({ route, navigation }: Props) {
             </Text>
             <Controller
               control={control}
-              name="ubicacionId"
+              name="ubicacionTexto"
               render={({ field: { value, onChange } }) => (
-                <View style={styles.chipsWrap}>
-                  {(ubicaciones ?? []).map((u) => (
-                    <Pressable
-                      key={u.id}
-                      onPress={() => onChange(u.id)}
-                      style={[styles.chip, value === u.id && styles.chipSelected]}
-                    >
-                      <Text style={[styles.chipLabel, value === u.id && styles.chipLabelSelected]}>{u.sede}</Text>
-                    </Pressable>
-                  ))}
-                </View>
+                <TextInput value={value} onChangeText={onChange} style={styles.input} placeholder="Ej. Bodega Norte, piso 2" />
               )}
             />
           </>

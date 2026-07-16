@@ -182,6 +182,11 @@ export function reporteDescargaUrl(proyectoId: string, formato: string) {
   return `/clientes/${clienteId()}/proyectos/${proyectoId}/reporte?formato=${formato}`;
 }
 
-export function fotosZipDescargaUrl(proyectoId: string) {
-  return `/clientes/${clienteId()}/proyectos/${proyectoId}/fotos.zip`;
+/** `rango` filtra por fecha de captura (auditadoEn) — descargas graduales de un proyecto grande. */
+export function fotosZipDescargaUrl(proyectoId: string, rango?: { desde?: string; hasta?: string }) {
+  const params = new URLSearchParams();
+  if (rango?.desde) params.set('desde', rango.desde);
+  if (rango?.hasta) params.set('hasta', rango.hasta);
+  const query = params.toString();
+  return `/clientes/${clienteId()}/proyectos/${proyectoId}/fotos.zip${query ? `?${query}` : ''}`;
 }

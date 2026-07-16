@@ -5,7 +5,6 @@ import type {
   AuthTokensOutput,
   CampoPersonalizadoOutput,
   ConfiguracionCampoOutput,
-  CrearUbicacionInput,
   MiAsignacionOutput,
   PaginatedOutput,
   ProyectoOutput,
@@ -73,10 +72,6 @@ export function buscarActivoPorCodigo(codigo: string) {
   return apiFetch<ActivoDetailOutput>(`/clientes/${clienteId()}/activos/buscar?codigo=${encodeURIComponent(codigo)}`);
 }
 
-export function buscarUbicacionPorCodigo(codigo: string) {
-  return apiFetch<UbicacionOutput>(`/clientes/${clienteId()}/ubicaciones/buscar?codigo=${encodeURIComponent(codigo)}`);
-}
-
 export function getUbicaciones() {
   return apiFetch<UbicacionOutput[]>(`/clientes/${clienteId()}/ubicaciones`);
 }
@@ -85,14 +80,6 @@ export function getConfiguracionCampos() {
   return apiFetch<{ campos: ConfiguracionCampoOutput[]; camposPersonalizados: CampoPersonalizadoOutput[] }>(
     `/clientes/${clienteId()}/configuracion-campos`,
   );
-}
-
-/** Alta de una ubicación nueva con un código ya escaneado en campo, sin coincidencia previa. */
-export function crearUbicacion(dto: CrearUbicacionInput) {
-  return apiFetch<UbicacionOutput>(`/clientes/${clienteId()}/ubicaciones`, {
-    method: 'POST',
-    body: dto,
-  });
 }
 
 interface UploadEntry {

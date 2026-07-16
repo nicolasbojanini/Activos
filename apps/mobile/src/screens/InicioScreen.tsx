@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, FlatList, Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, FlatList, Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronRight, CloudOff, MapPin, QrCode, RefreshCw, Search } from 'lucide-react-native';
@@ -82,6 +82,13 @@ export function InicioScreen({ navigation }: Props) {
   const [sincronizando, setSincronizando] = useState(false);
   const [errorSesion, setErrorSesion] = useState<string | null>(null);
   const [descargando, setDescargando] = useState(false);
+
+  const confirmarCerrarSesion = () => {
+    Alert.alert('Cerrar sesión', '¿Seguro que quieres cerrar tu sesión?', [
+      { text: 'Cancelar', style: 'cancel' },
+      { text: 'Cerrar sesión', style: 'destructive', onPress: () => void useAuthStore.getState().clear() },
+    ]);
+  };
 
   const invalidarLocal = () => {
     void queryClient.invalidateQueries({ queryKey: ['proyecto-local'] });
@@ -243,9 +250,9 @@ export function InicioScreen({ navigation }: Props) {
       <SafeAreaView edges={['top']} style={styles.header}>
         <View style={styles.headerTop}>
           <Image source={logoWhite} style={styles.logo} resizeMode="contain" />
-          <View style={styles.avatar}>
+          <Pressable style={styles.avatar} onPress={confirmarCerrarSesion} hitSlop={8}>
             <Text style={styles.avatarLabel}>{usuario?.nombre?.[0]?.toUpperCase() ?? '?'}</Text>
-          </View>
+          </Pressable>
         </View>
 
         <Text style={styles.eyebrow}>SESIÓN DE AUDITORÍA</Text>
@@ -345,15 +352,14 @@ export function InicioScreen({ navigation }: Props) {
       />
 
       <SafeAreaView edges={['bottom']} style={styles.ctaWrap}>
-        <Pressable
-          onPress={() => navigation.navigate('Escaneo', { modo: 'ubicacion' })}
-          style={[styles.ctaButton, styles.ctaButtonOutline]}
-        >
+        <Pressable onPress={() => navigation.navigate('Ubicacion')} style={[styles.ctaButton, styles.ctaButtonOutline]}>
           <MapPin size={20} color={colors.brand.blue} strokeWidth={1.8} />
-          <Text style={[styles.ctaLabel, styles.ctaLabelOutline]}>Escanear ubicación</Text>
+          <Text style={[styles.ctaLabel, styles.ctaLabelOutline]}>
+            {ubicacionActiva ? `Ubicación: ${ubicacionActiva.sede}` : 'Ingresar ubicación'}
+          </Text>
         </Pressable>
         <View style={{ height: spacing[2] }} />
-        <Pressable onPress={() => navigation.navigate('Escaneo', { modo: 'activo' })} style={styles.ctaButton}>
+        <Pressable onPress={() => navigation.navigate('Escaneo')} style={styles.ctaButton}>
           <QrCode size={20} color="#fff" strokeWidth={1.8} />
           <Text style={styles.ctaLabel}>Escanear código QR</Text>
         </Pressable>

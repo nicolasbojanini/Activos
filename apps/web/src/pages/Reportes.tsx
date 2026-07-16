@@ -13,8 +13,21 @@ const FORMATOS = [
   { formato: 'csv', label: 'CSV', icon: Table },
 ] as const;
 
+/** Bogotá es UTC-5 fijo (sin horario de verano) — evita depender de la zona horaria del navegador. */
+const OFFSET_BOGOTA = '-05:00';
+
+function inicioDelDiaBogota(fecha: string): string {
+  return `${fecha}T00:00:00${OFFSET_BOGOTA}`;
+}
+
+function finDelDiaBogota(fecha: string): string {
+  return `${fecha}T23:59:59.999${OFFSET_BOGOTA}`;
+}
+
 export function Reportes() {
   const [descargando, setDescargando] = useState<string | null>(null);
+  const [fotosDesde, setFotosDesde] = useState('');
+  const [fotosHasta, setFotosHasta] = useState('');
 
   const { data: proyectos } = useQuery({ queryKey: ['proyectos'], queryFn: getProyectos });
   const proyecto = proyectos?.[0];
@@ -39,7 +52,12 @@ export function Reportes() {
     if (!proyecto) return;
     setDescargando('fotos');
     try {
-      await descargarArchivo(fotosZipDescargaUrl(proyecto.id));
+      await descargarArchivo(
+        fotosZipDescargaUrl(proyecto.id, {
+          desde: fotosDesde ? inicioDelDiaBogota(fotosDesde) : undefined,
+          hasta: fotosHasta ? finDelDiaBogota(fotosHasta) : undefined,
+        }),
+      );
     } finally {
       setDescargando(null);
     }
@@ -168,29 +186,67 @@ export function Reportes() {
                 <Download size={14} strokeWidth={1.8} color="var(--adn-ink-400)" />
               </button>
             ))}
-            <button
-              onClick={() => void handleDescargarFotos()}
-              disabled={descargando !== null}
+            <div
               style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
                 border: '1px solid var(--adn-ink-200)',
                 borderRadius: 'var(--adn-radius-md)',
                 padding: '10px 16px',
-                background: '#fff',
-                cursor: descargando ? 'default' : 'pointer',
-                fontSize: 13,
-                fontWeight: 600,
-                opacity: descargando && descargando !== 'fotos' ? 0.5 : 1,
               }}
             >
-              <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <Images size={16} strokeWidth={1.8} color="var(--adn-blue)" />
-                Fotos de los activos (.zip)
-              </span>
-              <Download size={14} strokeWidth={1.8} color="var(--adn-ink-400)" />
-            </button>
+              <button
+                onClick={() => void handleDescargarFotos()}
+                disabled={descargando !== null}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  width: '100%',
+                  border: 'none',
+                  background: 'none',
+                  padding: 0,
+                  cursor: descargando ? 'default' : 'pointer',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  opacity: descargando && descargando !== 'fotos' ? 0.5 : 1,
+                }}
+              >
+                <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <Images size={16} strokeWidth={1.8} color="var(--adn-blue)" />
+                  Fotos de los activos (.zip)
+                </span>
+                <Download size={14} strokeWidth={1.8} color="var(--adn-ink-400)" />
+              </button>
+              <p style={{ fontSize: 11, color: 'var(--adn-ink-500)', margin: '8px 0 6px' }}>
+                Filtro opcional por fecha de captura, para descargar en tandas:
+              </p>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <input
+                  type="date"
+                  value={fotosDesde}
+                  onChange={(e) => setFotosDesde(e.target.value)}
+                  style={{
+                    flex: 1,
+                    border: '1px solid var(--adn-ink-200)',
+                    borderRadius: 'var(--adn-radius-sm)',
+                    padding: '6px 8px',
+                    fontSize: 12,
+                  }}
+                />
+                <span style={{ fontSize: 12, color: 'var(--adn-ink-500)' }}>a</span>
+                <input
+                  type="date"
+                  value={fotosHasta}
+                  onChange={(e) => setFotosHasta(e.target.value)}
+                  style={{
+                    flex: 1,
+                    border: '1px solid var(--adn-ink-200)',
+                    borderRadius: 'var(--adn-radius-sm)',
+                    padding: '6px 8px',
+                    fontSize: 12,
+                  }}
+                />
+              </div>
+            </div>
           </div>
         </div>
       </div>

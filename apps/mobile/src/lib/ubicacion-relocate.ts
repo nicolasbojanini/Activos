@@ -5,15 +5,23 @@ import { useUbicacionActivaStore } from './ubicacion-activa-store';
 export type CambioUbicacion = Record<string, { antes: unknown; despues: unknown }>;
 
 /**
- * Si hay una ubicación activa en la sesión de escaneo y difiere de la
- * ubicación actual del activo, retorna el diff de reubicación a mezclar en
- * `cambios`. Si no hay ubicación activa, o ya coincide, retorna null (sin
- * reubicación implícita).
+ * Si hay una ubicación activa en la sesión (texto libre, escrito a mano, sin
+ * escanear ni validar contra la base) y difiere del nombre de sede actual
+ * del activo, retorna el diff de reubicación a mezclar en `cambios`. La
+ * comparación es por texto, no por id: la ubicación activa nunca tiene un id
+ * resuelto en el teléfono — el servidor la resuelve (o la crea) al aplicar
+ * el registro, con red y base de datos disponibles (ver
+ * resolverUbicacionIdPorNombre en la API).
  */
 export function calcularReubicacionAutomatica(
-  activoUbicacionId: string | null,
+  activoUbicacionSede: string | null,
 ): CambioUbicacion | null {
   const ubicacionActiva = useUbicacionActivaStore.getState().ubicacionActiva;
-  if (!ubicacionActiva || ubicacionActiva.id === activoUbicacionId) return null;
-  return { ubicacionId: { antes: activoUbicacionId, despues: ubicacionActiva.id } };
+  if (!ubicacionActiva) return null;
+
+  const activa = ubicacionActiva.sede.trim();
+  const actual = (activoUbicacionSede ?? '').trim();
+  if (activa.toLowerCase() === actual.toLowerCase()) return null;
+
+  return { ubicacionNombre: { antes: activoUbicacionSede, despues: activa } };
 }

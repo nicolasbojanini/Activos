@@ -1,5 +1,4 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { randomBytes } from 'node:crypto';
 import * as XLSX from 'xlsx';
 import {
   activoImportRowSchema,
@@ -13,6 +12,7 @@ import type {
 } from '../../generated/tenant-client';
 import { ProyectosService } from '../proyectos/proyectos.service';
 import { ConfiguracionCamposService } from '../configuracion-campos/configuracion-campos.service';
+import { resolverUbicacionIdPorNombre } from '../ubicaciones/resolver-ubicacion-por-nombre';
 import {
   normalizarCategoria,
   normalizarEstadoFisico,
@@ -96,25 +96,18 @@ export class ImportsService {
 
     const errores: ImportErrorRow[] = [];
 
+    // Cache por sede (case-insensitive): un archivo grande suele repetir la
+    // misma sede en cientos de filas — sin esto, cada una dispararía su
+    // propio findFirst/create.
     const ubicacionCache = new Map<string, string>();
     const resolverUbicacionId = async (sede: string | null | undefined) => {
       if (!sede) return null;
       const cacheKey = sede.trim().toLowerCase();
       if (ubicacionCache.has(cacheKey)) return ubicacionCache.get(cacheKey)!;
 
-      const existente = await tenantPrisma.ubicacion.findFirst({
-        where: { sede: { equals: sede.trim(), mode: 'insensitive' } },
-      });
-      const ubicacion =
-        existente ??
-        (await tenantPrisma.ubicacion.create({
-          data: {
-            sede: sede.trim(),
-            codigo: await generarCodigoUbicacionUnico(tenantPrisma),
-          },
-        }));
-      ubicacionCache.set(cacheKey, ubicacion.id);
-      return ubicacion.id;
+      const id = await resolverUbicacionIdPorNombre(tenantPrisma, sede);
+      ubicacionCache.set(cacheKey, id);
+      return id;
     };
 
     // Fase 1: valida y arma los datos de cada fila (barato, sin tocar Activo
@@ -339,17 +332,4 @@ function enLotes<T>(items: T[], tamano: number): T[][] {
     lotes.push(items.slice(i, i + tamano));
   }
   return lotes;
-}
-
-async function generarCodigoUbicacionUnico(
-  tenantPrisma: TenantPrismaClient,
-): Promise<string> {
-  for (let intento = 0; intento < 5; intento++) {
-    const candidato = `UBI-${randomBytes(4).toString('hex').toUpperCase()}`;
-    const existe = await tenantPrisma.ubicacion.findFirst({
-      where: { codigo: candidato },
-    });
-    if (!existe) return candidato;
-  }
-  throw new Error('No se pudo generar un código único de ubicación');
 }

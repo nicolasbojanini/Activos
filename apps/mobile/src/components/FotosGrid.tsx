@@ -5,6 +5,9 @@ import type { FotoCapturada } from '../lib/fotos';
 
 export const ETIQUETAS_FOTO = ['Vista general', 'Placa / QR', 'N° de serie', 'Entorno'];
 
+/** Orden del único slot obligatorio — "Vista general" siempre debe capturarse. */
+export const ORDEN_FOTO_OBLIGATORIA = 0;
+
 interface FotosGridProps {
   fotos: FotoCapturada[];
   onCapturar: (etiqueta: string, orden: number) => void;
@@ -21,6 +24,7 @@ export function FotosGrid({ fotos, onCapturar, onQuitar }: FotosGridProps) {
       <View style={styles.grid}>
         {ETIQUETAS_FOTO.map((etiqueta, orden) => {
           const foto = fotos.find((f) => f.orden === orden);
+          const obligatoria = orden === ORDEN_FOTO_OBLIGATORIA;
           return (
             <Pressable
               key={orden}
@@ -44,6 +48,7 @@ export function FotosGrid({ fotos, onCapturar, onQuitar }: FotosGridProps) {
                   <Camera size={20} color={colors.ink[400]} strokeWidth={1.8} />
                   <Text style={styles.slotLabel} numberOfLines={2}>
                     {etiqueta}
+                    {obligatoria && <Text style={styles.slotObligatoria}> *</Text>}
                   </Text>
                 </>
               )}
@@ -73,6 +78,7 @@ const styles = StyleSheet.create({
     padding: spacing[1],
   },
   slotLabel: { fontSize: 10, color: colors.ink[500], textAlign: 'center', marginTop: 4 },
+  slotObligatoria: { color: colors.state.danger, fontWeight: '700' },
   thumb: { width: '100%', height: '100%' },
   etiquetaBadge: {
     position: 'absolute',

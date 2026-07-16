@@ -9,7 +9,13 @@ import {
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { reporteQuerySchema, Rol, type ReporteQuery } from '@adn/shared';
+import {
+  fotosZipQuerySchema,
+  reporteQuerySchema,
+  Rol,
+  type FotosZipQuery,
+  type ReporteQuery,
+} from '@adn/shared';
 import type { PrismaClient as TenantPrismaClient } from '../../generated/tenant-client';
 import { ReportesService } from './reportes.service';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -53,16 +59,19 @@ export class ReportesController {
   @Get(':proyectoId/fotos.zip')
   @ApiOperation({
     summary:
-      'Descargar en un .zip las fotos confirmadas de todos los activos del proyecto (nombre: placa-consecutivo.jpg)',
+      'Descargar en un .zip las fotos confirmadas del proyecto (nombre: placa-consecutivo.jpg). ' +
+      'Con desde/hasta filtra por fecha de captura (auditadoEn), para descargas graduales.',
   })
   async fotosZip(
     @TenantPrisma() tenantPrisma: TenantPrismaClient,
     @Param('proyectoId') proyectoId: string,
+    @Query(new ZodValidationPipe(fotosZipQuerySchema)) query: FotosZipQuery,
     @Res({ passthrough: true }) res: Response,
   ) {
     const { archive, filename } = await this.reportesService.generarZipFotos(
       tenantPrisma,
       proyectoId,
+      query,
     );
     res.set({
       'Content-Type': 'application/zip',
