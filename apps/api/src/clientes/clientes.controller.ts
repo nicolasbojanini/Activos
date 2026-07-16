@@ -41,7 +41,7 @@ export class ClientesController {
   }
 
   @Post()
-  @Roles(Rol.ADN_ADMIN)
+  @Roles(Rol.ADN_ADMIN, Rol.COORDINADOR)
   @ApiOperation({
     summary:
       'Dar de alta un cliente nuevo: crea y migra su base de datos física',
@@ -51,7 +51,7 @@ export class ClientesController {
   }
 
   @Patch(':clienteId')
-  @Roles(Rol.ADN_ADMIN)
+  @Roles(Rol.ADN_ADMIN, Rol.COORDINADOR)
   @ApiOperation({
     summary:
       'Suspender un cliente (bloquea el acceso, conserva la base de datos) o reactivarlo',
@@ -65,7 +65,7 @@ export class ClientesController {
   }
 
   @Delete(':clienteId')
-  @Roles(Rol.ADN_ADMIN)
+  @Roles(Rol.ADN_ADMIN, Rol.COORDINADOR)
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({
     summary:

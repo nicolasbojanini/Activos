@@ -71,12 +71,12 @@ export function ConfigurarCampos() {
   });
 
   const actualizarPersonalizadoMutation = useMutation({
-    mutationFn: ({ campoId, visible }: { campoId: string; visible: boolean }) =>
-      actualizarCampoPersonalizado(clienteId!, campoId, { visible }),
+    mutationFn: ({ campoId, visible, requerido }: { campoId: string; visible?: boolean; requerido?: boolean }) =>
+      actualizarCampoPersonalizado(clienteId!, campoId, { visible, requerido }),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['configuracion-campos', clienteId] }),
   });
 
-  if (usuario && usuario.rol !== 'ADN_ADMIN') {
+  if (usuario && usuario.rol !== 'ADN_ADMIN' && usuario.rol !== 'COORDINADOR') {
     return <Navigate to="/auditorias" replace />;
   }
 
@@ -203,9 +203,22 @@ export function ConfigurarCampos() {
                       type="checkbox"
                       checked={cp.visible}
                       disabled={actualizarPersonalizadoMutation.isPending}
-                      onChange={() => actualizarPersonalizadoMutation.mutate({ campoId: cp.id, visible: !cp.visible })}
+                      onChange={() => {
+                        const visible = !cp.visible;
+                        // Si se oculta, no tiene sentido dejarlo marcado como obligatorio (igual que los campos estándar).
+                        actualizarPersonalizadoMutation.mutate({ campoId: cp.id, visible, requerido: visible ? cp.requerido : false });
+                      }}
                     />
                     Visible
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: 'var(--adn-ink-500)', cursor: cp.visible ? 'pointer' : 'default' }}>
+                    <input
+                      type="checkbox"
+                      checked={cp.requerido}
+                      disabled={actualizarPersonalizadoMutation.isPending || !cp.visible}
+                      onChange={() => actualizarPersonalizadoMutation.mutate({ campoId: cp.id, requerido: !cp.requerido })}
+                    />
+                    Obligatorio
                   </label>
                   <button
                     onClick={() => eliminarPersonalizadoMutation.mutate(cp.id)}

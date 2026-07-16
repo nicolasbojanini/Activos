@@ -27,7 +27,7 @@ export function Layout({ children }: { children: ReactNode }) {
 
   const items = [
     ...navItems,
-    ...(usuario?.rol === 'ADN_ADMIN'
+    ...(usuario?.rol === 'ADN_ADMIN' || usuario?.rol === 'COORDINADOR'
       ? [{ to: '/clientes', label: 'Clientes', icon: Building2, enabled: true }]
       : []),
   ];

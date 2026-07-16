@@ -48,7 +48,7 @@ export function Clientes() {
     if (confirmado) eliminarMutation.mutate(id);
   };
 
-  if (usuario && usuario.rol !== 'ADN_ADMIN') {
+  if (usuario && usuario.rol !== 'ADN_ADMIN' && usuario.rol !== 'COORDINADOR') {
     return <Navigate to="/auditorias" replace />;
   }
 

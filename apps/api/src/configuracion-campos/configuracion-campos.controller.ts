@@ -32,7 +32,7 @@ import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe';
 @ApiTags('configuracion-campos')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Rol.ADN_ADMIN)
+@Roles(Rol.ADN_ADMIN, Rol.COORDINADOR)
 @Controller('clientes/:clienteId')
 export class ConfiguracionCamposController {
   constructor(private readonly service: ConfiguracionCamposService) {}
