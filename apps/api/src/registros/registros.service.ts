@@ -170,6 +170,15 @@ export class RegistrosService {
         });
       }
 
+      if (activoParaCambios) {
+        await this.heredarFotosFaltantes(
+          tx,
+          activoParaCambios.id,
+          creado.id,
+          new Set(fotosConKey.map((foto) => foto.orden)),
+        );
+      }
+
       return tx.registroAuditoria.findUniqueOrThrow({
         where: { id: creado.id },
         include: { fotos: true },
@@ -210,6 +219,58 @@ export class RegistrosService {
     );
 
     return tenantPrisma.foto.findMany({ where: { registroId } });
+  }
+
+  /**
+   * Las fotos son un "campo" más con última-versión-gana, igual que el resto
+   * de la ficha (ver aplicarCambiosAActivo): si el auditor no retoma un slot
+   * (p. ej. deja "N° de serie" sin repetir porque no cambió), este registro
+   * nuevo hereda la última foto conocida de ese slot en vez de quedar sin
+   * ella. Sin esto, ultimoRegistroPorActivo (que usa el ZIP de fotos y
+   * cualquier vista de "estado actual") solo ve el registro más reciente —
+   * si no trae todas las fotos, las anteriores parecen borradas aunque sigan
+   * intactas en S3, solo que colgadas de un registro viejo.
+   *
+   * No duplica el archivo en S3: el Foto nuevo apunta al mismo s3Key que el
+   * heredado, así que no hace falta descargar/resubir nada.
+   */
+  private async heredarFotosFaltantes(
+    tx: Prisma.TransactionClient,
+    activoId: string,
+    registroNuevoId: string,
+    ordenesNuevos: Set<number>,
+  ) {
+    const ultimaPorOrden = await tx.$queryRaw<
+      {
+        s3Key: string;
+        etiqueta: string | null;
+        orden: number;
+        ancho: number | null;
+        alto: number | null;
+        bytes: number | null;
+      }[]
+    >`
+      SELECT DISTINCT ON (f.orden) f."s3Key", f.etiqueta, f.orden, f.ancho, f.alto, f.bytes
+      FROM "Foto" f
+      JOIN "RegistroAuditoria" r ON r.id = f."registroId"
+      WHERE r."activoId" = ${activoId} AND r.id != ${registroNuevoId}
+      ORDER BY f.orden, r."auditadoEn" DESC, r.id DESC, f."createdAt" DESC
+    `;
+
+    const heredadas = ultimaPorOrden.filter((f) => !ordenesNuevos.has(f.orden));
+    if (heredadas.length === 0) return;
+
+    await tx.foto.createMany({
+      data: heredadas.map((f) => ({
+        registroId: registroNuevoId,
+        s3Key: f.s3Key,
+        etiqueta: f.etiqueta,
+        orden: f.orden,
+        ancho: f.ancho,
+        alto: f.alto,
+        bytes: f.bytes,
+      })),
+    });
   }
 
   /**
