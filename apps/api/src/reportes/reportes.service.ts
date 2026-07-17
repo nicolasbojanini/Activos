@@ -124,6 +124,25 @@ function formatearCambios(cambios: unknown): string {
     .join('; ');
 }
 
+/**
+ * Requisito de los clientes: los entregables (Excel/CSV/PDF) van con todos
+ * los valores en mayúsculas. Transforma genéricamente cualquier valor string
+ * de la fila en vez de tocar cada campo uno por uno — así un campo nuevo
+ * (estándar o personalizado) queda en mayúsculas automáticamente, sin tener
+ * que acordarse de sumarlo acá. Las claves (encabezados de columna) no se
+ * tocan: generarPDF accede a ellas por nombre literal (f.Código, f.Auditor…).
+ */
+function filaAMayusculas<T extends Record<string, string>>(fila: T): T {
+  const resultado = { ...fila };
+  for (const clave of Object.keys(resultado) as (keyof T)[]) {
+    const valor = resultado[clave];
+    if (typeof valor === 'string') {
+      resultado[clave] = valor.toLocaleUpperCase('es') as T[keyof T];
+    }
+  }
+  return resultado;
+}
+
 @Injectable()
 export class ReportesService {
   constructor(
@@ -321,32 +340,36 @@ export class ReportesService {
       fila['Estado auditoría'] = registro?.estado ?? 'PENDIENTE';
       fila.Auditor = registro?.auditorNombre ?? '';
       fila.Fecha = formatearFecha(registro?.auditadoEn);
-      return fila;
+      return filaAMayusculas(fila);
     });
 
     const filasDiferencias: FilaCambio[] = activos
       .map((activo) => ({ activo, registro: ultimoPorActivo.get(activo.id) }))
       .filter((r) => r.registro?.estado === 'DIFERENCIA')
-      .map(({ activo, registro }) => ({
-        Código: activo.codigoAnterior,
-        Activo: activo.nombre,
-        Cambios: formatearCambios(registro!.cambios),
-        Nota: registro!.nota ?? '',
-        Auditor: registro!.auditorNombre,
-        Fecha: formatearFecha(registro!.auditadoEn),
-      }));
+      .map(({ activo, registro }) =>
+        filaAMayusculas({
+          Código: activo.codigoAnterior,
+          Activo: activo.nombre,
+          Cambios: formatearCambios(registro!.cambios),
+          Nota: registro!.nota ?? '',
+          Auditor: registro!.auditorNombre,
+          Fecha: formatearFecha(registro!.auditadoEn),
+        }),
+      );
 
     const filasFaltantes: FilaCambio[] = activos
       .map((activo) => ({ activo, registro: ultimoPorActivo.get(activo.id) }))
       .filter((r) => r.registro?.estado === 'FALTANTE')
-      .map(({ activo, registro }) => ({
-        Código: activo.codigoAnterior,
-        Activo: activo.nombre,
-        Cambios: '',
-        Nota: registro!.nota ?? '',
-        Auditor: registro!.auditorNombre,
-        Fecha: formatearFecha(registro!.auditadoEn),
-      }));
+      .map(({ activo, registro }) =>
+        filaAMayusculas({
+          Código: activo.codigoAnterior,
+          Activo: activo.nombre,
+          Cambios: '',
+          Nota: registro!.nota ?? '',
+          Auditor: registro!.auditorNombre,
+          Fecha: formatearFecha(registro!.auditadoEn),
+        }),
+      );
 
     const filasNoRegistrados: FilaNoRegistrado[] = registrosNoRegistrados.map(
       (registro) => {
@@ -354,7 +377,7 @@ export class ReportesService {
           string,
           { despues?: unknown }
         > | null;
-        return {
+        return filaAMayusculas({
           'Código anterior':
             cambios?.codigoAnterior?.despues !== undefined
               ? aTexto(cambios.codigoAnterior.despues)
@@ -370,7 +393,7 @@ export class ReportesService {
           Nota: registro.nota ?? '',
           Auditor: nombresNoRegistrados.get(registro.auditorId) ?? '—',
           Fecha: formatearFecha(registro.auditadoEn),
-        };
+        });
       },
     );
 
