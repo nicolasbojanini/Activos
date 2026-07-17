@@ -110,16 +110,24 @@ export function InicioScreen({ navigation }: Props) {
   const conectado = useConectividad(() => void ejecutarSincronizacion());
 
   // Bootstrap: intenta refrescar el espejo local con red; si falla y ya había
-  // un espejo local previo, seguimos con ese (silencioso, es el caso normal
-  // de "sin señal en bodega"). Si falla y NO hay espejo local todavía (primera
-  // descarga), es un error real que hay que mostrar — antes quedaba tragado
-  // en silencio y la pantalla se quedaba en "Cargando…" para siempre sin
-  // ninguna pista de qué pasó.
+  // un espejo local previo DEL MISMO proyecto, seguimos con ese (silencioso,
+  // es el caso normal de "sin señal en bodega"). Si falla y NO hay espejo
+  // local todavía (primera descarga), es un error real que hay que mostrar —
+  // antes quedaba tragado en silencio y la pantalla se quedaba en
+  // "Cargando…" para siempre sin ninguna pista de qué pasó.
   useEffect(() => {
     if (!clienteId || !proyectoId) return; // sin asignación: el estado vacío se encarga
     async function bootstrap() {
       setErrorSesion(null);
-      const habiaSesion = await haySesionDescargada();
+      const proyectoLocal = await obtenerProyectoActivo();
+      // Si el espejo local quedó de OTRO proyecto (reasignación del auditor a
+      // otro cliente, o dispositivo reutilizado) no sirve como base para un
+      // delta ni se puede mostrar: pertenece a otro tenant. Se trata igual
+      // que "no hay sesión" y se fuerza una descarga completa del proyecto
+      // actual — si no, el delta trae solo lo que cambió y deja mezclados
+      // los activos del cliente anterior con los del nuevo.
+      const esOtroProyecto = proyectoLocal !== null && proyectoLocal.id !== proyectoId;
+      const habiaSesion = !esOtroProyecto && (await haySesionDescargada());
       if (!habiaSesion) setDescargando(true);
       try {
         const proyecto = await getProyecto(proyectoId!);
@@ -140,7 +148,7 @@ export function InicioScreen({ navigation }: Props) {
         if (!habiaSesion) {
           setErrorSesion(err instanceof Error ? err.message : String(err));
         }
-        // Si ya había espejo local, el error se ignora: seguimos con lo descargado antes.
+        // Si ya había espejo local válido (mismo proyecto), el error se ignora: seguimos con lo descargado antes.
       } finally {
         setDescargando(false);
       }

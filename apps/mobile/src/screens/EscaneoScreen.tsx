@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Alert, Animated, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, Animated, KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { X, Keyboard } from 'lucide-react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -93,12 +93,32 @@ export function EscaneoScreen({ navigation }: Props) {
         <CameraView
           style={StyleSheet.absoluteFill}
           facing="back"
-          barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
+          barcodeScannerSettings={{
+            // Los activos se identifican con QR o con etiquetas de código de
+            // barras (impresoras de etiquetas típicamente en code128/code39)
+            // — se habilitan todos los formatos que soporta expo-camera para
+            // no depender de qué formato haya usado cada cliente al imprimir.
+            barcodeTypes: [
+              'qr',
+              'code128',
+              'code39',
+              'code93',
+              'codabar',
+              'itf14',
+              'ean13',
+              'ean8',
+              'upc_a',
+              'upc_e',
+              'pdf417',
+              'datamatrix',
+              'aztec',
+            ],
+          }}
           onBarcodeScanned={locked || requiereUbicacion ? undefined : handleScanned}
         />
       ) : (
         <View style={styles.permisoDenegado}>
-          <Text style={styles.permisoTexto}>Necesitamos acceso a la cámara para escanear el código QR del activo.</Text>
+          <Text style={styles.permisoTexto}>Necesitamos acceso a la cámara para escanear el código del activo.</Text>
           <PrimaryButton label="Solicitar permiso" onPress={() => void requestPermission()} />
         </View>
       )}
@@ -119,7 +139,7 @@ export function EscaneoScreen({ navigation }: Props) {
           <View style={[styles.corner, styles.cornerBR]} />
           <Animated.View style={[styles.scanLine, { transform: [{ translateY }] }]} />
         </View>
-        <Text style={styles.detectando}>{locked ? 'Resolviendo…' : 'Detectando código QR…'}</Text>
+        <Text style={styles.detectando}>{locked ? 'Resolviendo…' : 'Detectando código…'}</Text>
         {error && <Text style={styles.errorTexto}>{error}</Text>}
 
         <Pressable style={styles.manualButton} onPress={() => setManualVisible(true)}>
@@ -129,7 +149,13 @@ export function EscaneoScreen({ navigation }: Props) {
       </View>
 
       <Modal visible={manualVisible} transparent animationType="slide" onRequestClose={() => setManualVisible(false)}>
-        <View style={styles.modalBackdrop}>
+        {/* Modal es una ventana nativa aparte en Android: no hereda el resize
+            automático de la pantalla principal frente al teclado, así que sin
+            esto el TextInput queda tapado por el teclado al abrirlo. */}
+        <KeyboardAvoidingView
+          style={styles.modalBackdrop}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>Ingresar código manualmente</Text>
             <TextInput
@@ -156,7 +182,7 @@ export function EscaneoScreen({ navigation }: Props) {
               </View>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
