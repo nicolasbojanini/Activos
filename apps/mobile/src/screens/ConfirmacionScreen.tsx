@@ -39,9 +39,7 @@ export function ConfirmacionScreen({ route, navigation }: Props) {
       </View>
 
       <View style={styles.acciones}>
-        <PrimaryButton label="Escanear siguiente activo" onPress={() => navigation.navigate('Escaneo')} />
-        <View style={{ height: spacing[2] }} />
-        <PrimaryButton label="Volver a la lista" variant="outline" onPress={() => navigation.navigate('Inicio')} />
+        <PrimaryButton label="Volver a la lista" onPress={() => navigation.navigate('Inicio')} />
       </View>
     </SafeAreaView>
   );
