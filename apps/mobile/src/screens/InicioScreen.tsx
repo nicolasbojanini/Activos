@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, FlatList, Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ChevronRight, CloudOff, MapPin, QrCode, RefreshCw, Search } from 'lucide-react-native';
+import { ChevronRight, CloudOff, MapPin, PlusCircle, RefreshCw, Search } from 'lucide-react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { colors, radius, spacing } from '@adn/ui-tokens';
 import type { CategoriaActivo } from '@adn/shared';
@@ -353,23 +353,34 @@ export function InicioScreen({ navigation }: Props) {
           </>
         }
         ListEmptyComponent={
-          <Text style={styles.empty}>
-            {activosLoading ? 'Cargando…' : 'No hay activos que coincidan con la búsqueda.'}
-          </Text>
+          activosLoading ? (
+            <Text style={styles.empty}>Cargando…</Text>
+          ) : (
+            <View>
+              <Text style={styles.empty}>No hay activos que coincidan con la búsqueda.</Text>
+              {/* El lector de mano escribe el código directo en el buscador (sin
+                  pasar por la cámara) — si no existe, se ofrece darlo de alta acá
+                  mismo en vez de mandar al auditor a buscar otra pantalla. */}
+              {qDebounced.trim().length > 0 && (
+                <Pressable
+                  style={styles.crearActivoBtn}
+                  onPress={() => navigation.navigate('NoRegistrado', { codigo: qDebounced.trim() })}
+                >
+                  <PlusCircle size={16} color={colors.brand.blue} strokeWidth={1.8} />
+                  <Text style={styles.crearActivoLabel}>Crear activo con código «{qDebounced.trim()}»</Text>
+                </Pressable>
+              )}
+            </View>
+          )
         }
       />
 
       <SafeAreaView edges={['bottom']} style={styles.ctaWrap}>
-        <Pressable onPress={() => navigation.navigate('Ubicacion')} style={[styles.ctaButton, styles.ctaButtonOutline]}>
-          <MapPin size={20} color={colors.brand.blue} strokeWidth={1.8} />
-          <Text style={[styles.ctaLabel, styles.ctaLabelOutline]}>
+        <Pressable onPress={() => navigation.navigate('Ubicacion')} style={styles.ctaButton}>
+          <MapPin size={20} color="#fff" strokeWidth={1.8} />
+          <Text style={styles.ctaLabel}>
             {ubicacionActiva ? `Ubicación: ${ubicacionActiva.sede}` : 'Ingresar ubicación'}
           </Text>
-        </Pressable>
-        <View style={{ height: spacing[2] }} />
-        <Pressable onPress={() => navigation.navigate('Escaneo')} style={styles.ctaButton}>
-          <QrCode size={20} color="#fff" strokeWidth={1.8} />
-          <Text style={styles.ctaLabel}>Escanear código QR</Text>
         </Pressable>
       </SafeAreaView>
     </View>
@@ -496,6 +507,19 @@ const styles = StyleSheet.create({
   rowUbicacion: { fontSize: 12, color: colors.ink[500], marginTop: 1 },
   sinSyncLabel: { fontSize: 10, fontWeight: '600', color: colors.state.warning },
   empty: { textAlign: 'center', color: colors.ink[500], marginTop: spacing[6] },
+  crearActivoBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing[2],
+    marginTop: spacing[4],
+    marginHorizontal: spacing[6],
+    paddingVertical: spacing[3],
+    borderWidth: 1,
+    borderColor: colors.brand.blue,
+    borderRadius: radius.md,
+  },
+  crearActivoLabel: { color: colors.brand.blue, fontWeight: '600', fontSize: 13 },
   ctaWrap: {
     position: 'absolute',
     bottom: 0,
@@ -520,12 +544,4 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   ctaLabel: { color: '#fff', fontWeight: '600', fontSize: 14 },
-  ctaButtonOutline: {
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: colors.brand.blue,
-    shadowOpacity: 0,
-    elevation: 0,
-  },
-  ctaLabelOutline: { color: colors.brand.blue },
 });
