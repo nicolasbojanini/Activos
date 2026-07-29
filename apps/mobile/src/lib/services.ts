@@ -4,6 +4,7 @@ import type {
   ActivoSesionOutput,
   AuthTokensOutput,
   CampoPersonalizadoOutput,
+  CampoUbicacionOutput,
   ConfiguracionCampoOutput,
   MiAsignacionOutput,
   PaginatedOutput,
@@ -81,6 +82,7 @@ export function getConfiguracionCampos() {
     campos: ConfiguracionCampoOutput[];
     camposPersonalizados: CampoPersonalizadoOutput[];
     fotoObligatoria: boolean;
+    camposUbicacion: CampoUbicacionOutput[];
   }>(`/clientes/${clienteId()}/configuracion-campos`);
 }
 

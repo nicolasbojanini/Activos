@@ -2,6 +2,7 @@ import { eq, and, or, asc, inArray, sql } from 'drizzle-orm';
 import type {
   ActivoSesionOutput,
   CampoPersonalizadoOutput,
+  CampoUbicacionOutput,
   ConfiguracionCampoOutput,
   EstadoAuditoria,
   ProyectoOutput,
@@ -19,6 +20,7 @@ export interface ConfiguracionCamposLocal {
   campos: ConfiguracionCampoOutput[];
   camposPersonalizados: CampoPersonalizadoOutput[];
   fotoObligatoria: boolean;
+  camposUbicacion: CampoUbicacionOutput[];
 }
 
 export async function guardarProyectoActivo(proyecto: ProyectoOutput) {
@@ -98,6 +100,7 @@ function aFilaLocal(activo: ActivoSesionOutput) {
     proveedor: activo.proveedor,
     vidaUtilMeses: activo.vidaUtilMeses,
     camposPersonalizadosJson: activo.camposPersonalizados ? JSON.stringify(activo.camposPersonalizados) : null,
+    camposUbicacionJson: activo.camposUbicacion ? JSON.stringify(activo.camposUbicacion) : null,
     estadoServidor: activo.estado,
     ultimoAuditorServidor: activo.ultimoAuditor,
   };

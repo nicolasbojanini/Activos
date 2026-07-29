@@ -8,12 +8,18 @@ import { useAuthStore } from '../lib/auth-store';
 import { ApiError } from '../lib/api';
 import {
   actualizarCampoPersonalizado,
+  actualizarCampoUbicacion,
   actualizarConfiguracionCampos,
   actualizarFotoObligatoria,
   crearCampoPersonalizado,
+  crearCampoUbicacion,
   eliminarCampoPersonalizado,
+  eliminarCampoUbicacion,
   getConfiguracionCampos,
 } from '../lib/services';
+
+/** Ubicación activa: hasta 6 campos en total, siendo "Ubicación" (el base, fijo) uno de ellos. */
+const MAXIMO_CAMPOS_UBICACION_ADICIONALES = 5;
 
 type CampoEstado = Pick<ConfiguracionCampoOutput, 'campo' | 'etiqueta' | 'visible' | 'requerido'>;
 
@@ -26,6 +32,8 @@ export function ConfigurarCampos() {
   const [campos, setCampos] = useState<CampoEstado[] | null>(null);
   const [nuevaEtiqueta, setNuevaEtiqueta] = useState('');
   const [nuevoRequerido, setNuevoRequerido] = useState(false);
+  const [nuevaEtiquetaUbicacion, setNuevaEtiquetaUbicacion] = useState('');
+  const [nuevoRequeridoUbicacion, setNuevoRequeridoUbicacion] = useState(false);
   // Recuerda para qué cliente ya se hidrató `campos`, para hidratar una sola
   // vez por cliente en vez de en cada refetch.
   const hidratadoPara = useRef<string | null>(null);
@@ -79,6 +87,26 @@ export function ConfigurarCampos() {
 
   const fotoObligatoriaMutation = useMutation({
     mutationFn: (valor: boolean) => actualizarFotoObligatoria(clienteId!, valor),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['configuracion-campos', clienteId] }),
+  });
+
+  const crearUbicacionMutation = useMutation({
+    mutationFn: () => crearCampoUbicacion(clienteId!, { etiqueta: nuevaEtiquetaUbicacion, requerido: nuevoRequeridoUbicacion }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['configuracion-campos', clienteId] });
+      setNuevaEtiquetaUbicacion('');
+      setNuevoRequeridoUbicacion(false);
+    },
+  });
+
+  const eliminarUbicacionMutation = useMutation({
+    mutationFn: (campoId: string) => eliminarCampoUbicacion(clienteId!, campoId),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['configuracion-campos', clienteId] }),
+  });
+
+  const actualizarUbicacionMutation = useMutation({
+    mutationFn: ({ campoId, requerido }: { campoId: string; requerido: boolean }) =>
+      actualizarCampoUbicacion(clienteId!, campoId, { requerido }),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['configuracion-campos', clienteId] }),
   });
 
@@ -217,6 +245,109 @@ export function ConfigurarCampos() {
                 : 'No se pudo actualizar la configuración de fotos'}
             </p>
           )}
+
+          <div
+            style={{
+              background: '#fff',
+              border: '1px solid var(--adn-ink-200)',
+              borderRadius: 'var(--adn-radius-lg)',
+              padding: 20,
+              marginBottom: 20,
+            }}
+          >
+            <h3 style={{ fontSize: 15, marginBottom: 4 }}>Campos de ubicación</h3>
+            <p style={{ fontSize: 12, color: 'var(--adn-ink-500)', marginBottom: 16 }}>
+              La «ubicación activa» que el auditor escribe una sola vez por sesión en el celular, y que se aplica
+              automáticamente a cada activo mientras siga activa. «Ubicación» es el campo base y siempre está —
+              puedes agregar hasta {MAXIMO_CAMPOS_UBICACION_ADICIONALES} más (Torre, Piso, Sede, etc.), hasta 6 en
+              total.
+            </p>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', fontSize: 13 }}>
+              <span>Ubicación</span>
+              <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--adn-ink-500)' }}>Base · obligatorio</span>
+            </div>
+
+            {data?.camposUbicacion.map((cu) => (
+              <div
+                key={cu.id}
+                style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderTop: '1px solid var(--adn-ink-100)', fontSize: 13 }}
+              >
+                <span>
+                  {cu.etiqueta}
+                  {cu.requerido && <span style={{ color: 'var(--adn-danger)' }}> *</span>}
+                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: 'var(--adn-ink-500)', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={cu.requerido}
+                      disabled={actualizarUbicacionMutation.isPending}
+                      onChange={() => actualizarUbicacionMutation.mutate({ campoId: cu.id, requerido: !cu.requerido })}
+                    />
+                    Obligatorio
+                  </label>
+                  <button
+                    onClick={() => eliminarUbicacionMutation.mutate(cu.id)}
+                    disabled={eliminarUbicacionMutation.isPending}
+                    style={iconButtonStyle}
+                  >
+                    <Trash2 size={14} strokeWidth={1.8} />
+                  </button>
+                </div>
+              </div>
+            ))}
+
+            {(eliminarUbicacionMutation.isError || actualizarUbicacionMutation.isError) && (
+              <p style={{ fontSize: 12, color: 'var(--adn-danger)', margin: '8px 0 0' }}>
+                No se pudo actualizar el campo de ubicación.
+              </p>
+            )}
+
+            {(data?.camposUbicacion.length ?? 0) < MAXIMO_CAMPOS_UBICACION_ADICIONALES ? (
+              <form
+                onSubmit={(e: FormEvent) => {
+                  e.preventDefault();
+                  if (nuevaEtiquetaUbicacion.trim()) crearUbicacionMutation.mutate();
+                }}
+                style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--adn-ink-100)' }}
+              >
+                <input
+                  value={nuevaEtiquetaUbicacion}
+                  onChange={(e) => setNuevaEtiquetaUbicacion(e.target.value)}
+                  placeholder="Ej. Torre, Piso, Sede"
+                  style={{ flex: 1, padding: '8px 10px', borderRadius: 'var(--adn-radius-sm)', border: '1px solid var(--adn-ink-200)', fontSize: 13 }}
+                />
+                <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, whiteSpace: 'nowrap' }}>
+                  <input
+                    type="checkbox"
+                    checked={nuevoRequeridoUbicacion}
+                    onChange={(e) => setNuevoRequeridoUbicacion(e.target.checked)}
+                  />
+                  Obligatorio
+                </label>
+                <button
+                  type="submit"
+                  disabled={crearUbicacionMutation.isPending || !nuevaEtiquetaUbicacion.trim()}
+                  style={primaryButtonStyle}
+                >
+                  Agregar
+                </button>
+              </form>
+            ) : (
+              <p style={{ fontSize: 12, color: 'var(--adn-ink-500)', marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--adn-ink-100)' }}>
+                Ya tienes el máximo de {MAXIMO_CAMPOS_UBICACION_ADICIONALES} campos adicionales — elimina uno para
+                agregar otro.
+              </p>
+            )}
+            {crearUbicacionMutation.isError && (
+              <p style={{ fontSize: 12, color: 'var(--adn-danger)', margin: '8px 0 0' }}>
+                {crearUbicacionMutation.error instanceof ApiError
+                  ? crearUbicacionMutation.error.message
+                  : 'No se pudo crear el campo de ubicación'}
+              </p>
+            )}
+          </div>
 
           <div
             style={{

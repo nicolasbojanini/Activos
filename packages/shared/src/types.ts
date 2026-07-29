@@ -52,6 +52,8 @@ export interface ActivoDetailOutput extends ActivoListItemOutput {
   proveedor: string | null;
   vidaUtilMeses: number | null;
   camposPersonalizados: Record<string, string> | null;
+  /** Valores de los CampoUbicacion del cliente, como {[id]: valor} — ver campoUbicacionSchema. */
+  camposUbicacion: Record<string, string> | null;
 }
 
 /**

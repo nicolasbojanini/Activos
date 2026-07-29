@@ -1,7 +1,13 @@
 import { useNavigate, useParams } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { ChevronLeft } from 'lucide-react';
-import type { ActivoDetailOutput, CampoPersonalizadoOutput, ConfiguracionCampoOutput, RegistroHistorialOutput } from '@adn/shared';
+import type {
+  ActivoDetailOutput,
+  CampoPersonalizadoOutput,
+  CampoUbicacionOutput,
+  ConfiguracionCampoOutput,
+  RegistroHistorialOutput,
+} from '@adn/shared';
 import { Layout } from '../components/Layout';
 import { EstadoBadge } from '../components/Badge';
 import { useClienteStore } from '../lib/cliente-store';
@@ -37,7 +43,12 @@ const CAMPO_VALOR: Record<string, (activo: ActivoDetailOutput) => string> = {
   vidaUtilMeses: (a) => (a.vidaUtilMeses ? `${a.vidaUtilMeses} meses` : '—'),
 };
 
-function ficha(activo: ActivoDetailOutput, campos: ConfiguracionCampoOutput[], camposPersonalizados: CampoPersonalizadoOutput[]) {
+function ficha(
+  activo: ActivoDetailOutput,
+  campos: ConfiguracionCampoOutput[],
+  camposPersonalizados: CampoPersonalizadoOutput[],
+  camposUbicacion: CampoUbicacionOutput[],
+) {
   const filas = campos
     .filter((c) => c.visible)
     .map((c) => ({ label: c.etiqueta, valor: CAMPO_VALOR[c.campo]?.(activo) ?? '—' }));
@@ -47,7 +58,11 @@ function ficha(activo: ActivoDetailOutput, campos: ConfiguracionCampoOutput[], c
     .map((cp) => ({ label: cp.etiqueta, valor: activo.camposPersonalizados?.[cp.id] }))
     .filter((f): f is { label: string; valor: string } => !!f.valor);
 
-  return [...filas, ...personalizados];
+  const ubicacionExtra = camposUbicacion
+    .map((cu) => ({ label: cu.etiqueta, valor: activo.camposUbicacion?.[cu.id] }))
+    .filter((f): f is { label: string; valor: string } => !!f.valor);
+
+  return [...filas, ...personalizados, ...ubicacionExtra];
 }
 
 export function ActivoDetalle() {
@@ -132,7 +147,12 @@ export function ActivoDetalle() {
           }}
         >
           <h3 style={{ fontSize: 15, padding: '16px 20px 0' }}>Ficha</h3>
-          {ficha(activo, configuracion?.campos ?? [], configuracion?.camposPersonalizados ?? []).map((campo, i) => (
+          {ficha(
+            activo,
+            configuracion?.campos ?? [],
+            configuracion?.camposPersonalizados ?? [],
+            configuracion?.camposUbicacion ?? [],
+          ).map((campo, i) => (
             <div
               key={campo.label}
               style={{

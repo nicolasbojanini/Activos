@@ -58,6 +58,7 @@ interface ActivoSesionRow {
   proveedor: string | null;
   vidaUtilMeses: number | null;
   camposPersonalizados: Prisma.JsonValue | null;
+  camposUbicacion: Prisma.JsonValue | null;
   ubicacionId: string | null;
   ubicacionCodigo: string | null;
   ubicacionSede: string | null;
@@ -220,7 +221,7 @@ export class ActivosService {
         a.descripcion, a.categoria, a.color, a.medidas, a.capacidad, a.marca,
         a.modelo, a.serie, a.responsable, a."centroCosto", a."estadoFisico",
         a."fechaAdquisicion", a."valorLibros", a.proveedor, a."vidaUtilMeses",
-        a."camposPersonalizados",
+        a."camposPersonalizados", a."camposUbicacion",
         u.id AS "ubicacionId", u.codigo AS "ubicacionCodigo",
         u.sede AS "ubicacionSede", u.detalle AS "ubicacionDetalle",
         COALESCE(ultimo.estado, 'PENDIENTE') AS estado,
@@ -272,6 +273,8 @@ export class ActivosService {
       vidaUtilMeses: f.vidaUtilMeses,
       camposPersonalizados:
         (f.camposPersonalizados as Record<string, string> | null) ?? null,
+      camposUbicacion:
+        (f.camposUbicacion as Record<string, string> | null) ?? null,
       estado: f.estado,
       ultimoAuditor: f.auditorId
         ? (nombresPorId.get(f.auditorId) ?? '—')
@@ -357,6 +360,8 @@ export class ActivosService {
       vidaUtilMeses: activo.vidaUtilMeses,
       camposPersonalizados:
         (activo.camposPersonalizados as Record<string, string> | null) ?? null,
+      camposUbicacion:
+        (activo.camposUbicacion as Record<string, string> | null) ?? null,
       estado: ultimoRegistro?.estado ?? 'PENDIENTE',
       ultimoAuditor: ultimoRegistro
         ? (nombresPorId.get(ultimoRegistro.auditorId) ?? '—')

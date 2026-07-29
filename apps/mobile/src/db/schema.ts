@@ -26,6 +26,8 @@ export const activosLocal = sqliteTable('activos_local', {
   vidaUtilMeses: integer('vida_util_meses'),
   /** JSON de {[campoPersonalizadoId]: valor}, espejo de Activo.camposPersonalizados. */
   camposPersonalizadosJson: text('campos_personalizados_json'),
+  /** JSON de {[campoUbicacionId]: valor}, espejo de Activo.camposUbicacion. */
+  camposUbicacionJson: text('campos_ubicacion_json'),
   estadoServidor: text('estado_servidor').notNull(),
   ultimoAuditorServidor: text('ultimo_auditor_servidor'),
 });

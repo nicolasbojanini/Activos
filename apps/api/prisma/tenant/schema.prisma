@@ -88,6 +88,9 @@ model Activo {
 
   /// Valores de los CampoPersonalizado del cliente (control DB), como {[id]: valor}.
   camposPersonalizados Json?
+  /// Valores de los CampoUbicacion del cliente (control DB), como {[id]: valor} —
+  /// se llenan solos desde la "ubicación activa" de la sesión móvil, no a mano por activo.
+  camposUbicacion Json?
 
   registros      RegistroAuditoria[]
   deletedAt      DateTime?

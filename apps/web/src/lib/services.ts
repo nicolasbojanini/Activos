@@ -1,15 +1,18 @@
 import type {
   ActivoDetailOutput,
   ActualizarCampoPersonalizadoInput,
+  ActualizarCampoUbicacionInput,
   ActualizarClienteInput,
   ActualizarConfiguracionCamposInput,
   AsignacionProyectoOutput,
   AsignarProyectoInput,
   AuthTokensOutput,
   CampoPersonalizadoOutput,
+  CampoUbicacionOutput,
   ClienteOutput,
   ConfiguracionCampoOutput,
   CrearCampoPersonalizadoInput,
+  CrearCampoUbicacionInput,
   CrearClienteInput,
   CrearProyectoInput,
   CrearUsuarioInput,
@@ -61,6 +64,7 @@ export function getConfiguracionCampos(idCliente: string) {
     campos: ConfiguracionCampoOutput[];
     camposPersonalizados: CampoPersonalizadoOutput[];
     fotoObligatoria: boolean;
+    camposUbicacion: CampoUbicacionOutput[];
   }>(`/clientes/${idCliente}/configuracion-campos`);
 }
 
@@ -95,6 +99,28 @@ export function actualizarCampoPersonalizado(
   dto: ActualizarCampoPersonalizadoInput,
 ) {
   return apiFetch<CampoPersonalizadoOutput>(`/clientes/${idCliente}/campos-personalizados/${campoId}`, {
+    method: 'PATCH',
+    body: dto,
+  });
+}
+
+export function crearCampoUbicacion(idCliente: string, dto: CrearCampoUbicacionInput) {
+  return apiFetch<CampoUbicacionOutput>(`/clientes/${idCliente}/campos-ubicacion`, {
+    method: 'POST',
+    body: dto,
+  });
+}
+
+export function eliminarCampoUbicacion(idCliente: string, campoId: string) {
+  return apiFetch<void>(`/clientes/${idCliente}/campos-ubicacion/${campoId}`, { method: 'DELETE' });
+}
+
+export function actualizarCampoUbicacion(
+  idCliente: string,
+  campoId: string,
+  dto: ActualizarCampoUbicacionInput,
+) {
+  return apiFetch<CampoUbicacionOutput>(`/clientes/${idCliente}/campos-ubicacion/${campoId}`, {
     method: 'PATCH',
     body: dto,
   });

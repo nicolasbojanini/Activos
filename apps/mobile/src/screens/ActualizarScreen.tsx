@@ -14,7 +14,7 @@ import { useProyectoActual } from '../lib/useProyectoActual';
 import { useConfiguracionCampos } from '../lib/useConfiguracionCampos';
 import { encolarRegistro } from '../lib/registro-offline';
 import { calcularReubicacionAutomatica } from '../lib/ubicacion-relocate';
-import { useUbicacionActivaStore } from '../lib/ubicacion-activa-store';
+import { CLAVE_UBICACION_BASE, useUbicacionActivaStore } from '../lib/ubicacion-activa-store';
 import { capturarFoto, eliminarFotoLocal, type FotoCapturada } from '../lib/fotos';
 import { HeaderBar } from '../components/HeaderBar';
 import { PrimaryButton } from '../components/PrimaryButton';
@@ -148,10 +148,11 @@ export function ActualizarScreen({ route, navigation }: Props) {
       // Si hay una ubicación activa en la sesión y difiere de la guardada, se
       // precarga en el campo para que el auditor la vea reflejada antes de
       // enviar (en vez de que sea una sobreescritura silenciosa al guardar).
+      const ubicacionActivaBase = ubicacionActiva?.[CLAVE_UBICACION_BASE];
       const ubicacionPorDefecto =
-        ubicacionActiva &&
-        ubicacionActiva.sede.trim().toLowerCase() !== (resultado.activo.ubicacionSede ?? '').trim().toLowerCase()
-          ? ubicacionActiva.sede
+        ubicacionActivaBase &&
+        ubicacionActivaBase.trim().toLowerCase() !== (resultado.activo.ubicacionSede ?? '').trim().toLowerCase()
+          ? ubicacionActivaBase
           : (resultado.activo.ubicacionSede ?? '');
       reset({
         estadoFisico: resultado.activo.estadoFisico as FormValues['estadoFisico'],
@@ -236,12 +237,23 @@ export function ActualizarScreen({ route, navigation }: Props) {
     // La reubicación automática (ubicación activa de la sesión) tiene prioridad sobre el
     // campo manual: refleja dónde está parado el auditor, más autoritativo que un valor
     // de formulario que pudo quedarse igual por descuido.
-    const reubicacion = calcularReubicacionAutomatica(activo.ubicacionSede);
+    const camposUbicacionActuales: Record<string, string> = activo.camposUbicacionJson
+      ? (JSON.parse(activo.camposUbicacionJson) as Record<string, string>)
+      : {};
+    const reubicacion = calcularReubicacionAutomatica(activo.ubicacionSede, camposUbicacionActuales);
     const ubicacionActualTexto = (activo.ubicacionSede ?? '').trim();
-    if (reubicacion) {
+    if (reubicacion?.ubicacionNombre) {
       cambios.ubicacionNombre = reubicacion.ubicacionNombre;
     } else if (values.ubicacionTexto.trim().toLowerCase() !== ubicacionActualTexto.toLowerCase()) {
       cambios.ubicacionNombre = { antes: activo.ubicacionSede, despues: values.ubicacionTexto.trim() || null };
+    }
+    // Los campos de ubicación extra (Torre, Piso, etc.) solo vienen de la ubicación
+    // activa de la sesión — no tienen un campo manual propio en esta pantalla.
+    if (reubicacion) {
+      for (const [clave, diff] of Object.entries(reubicacion)) {
+        if (clave === 'ubicacionNombre') continue;
+        cambios[clave] = diff;
+      }
     }
     if ((values.responsable || null) !== (activo.responsable ?? null)) {
       cambios.responsable = { antes: activo.responsable, despues: values.responsable || null };

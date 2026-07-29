@@ -162,3 +162,38 @@ export const actualizarFotoObligatoriaSchema = z.object({
 export type ActualizarFotoObligatoriaInput = z.infer<
   typeof actualizarFotoObligatoriaSchema
 >;
+
+/**
+ * Campos adicionales de la "ubicación activa" de la sesión móvil (Torre,
+ * Piso, Sede, etc.), además del campo base "Ubicación" (que no es una fila
+ * de esta tabla — es fijo, siempre presente). A diferencia de los campos
+ * personalizados (atributos del ACTIVO, se llenan uno por uno), estos son
+ * atributos del SITIO donde está parado el auditor: se llenan una sola vez
+ * por sesión en UbicacionScreen y se propagan automáticamente a cada activo
+ * que se audite mientras esa ubicación esté activa (ver ubicacion-relocate.ts
+ * en mobile) — por eso no tienen "visible", solo existir ya implica que se
+ * piden. Máximo 5: junto con "Ubicación" son 6 campos en total.
+ */
+export const campoUbicacionSchema = z.object({
+  id: z.string(),
+  etiqueta: z.string(),
+  requerido: z.boolean(),
+  orden: z.number(),
+});
+
+export type CampoUbicacionOutput = z.infer<typeof campoUbicacionSchema>;
+
+export const crearCampoUbicacionSchema = z.object({
+  etiqueta: z.string().min(1, 'La etiqueta es obligatoria'),
+  requerido: z.boolean().default(false),
+});
+
+export type CrearCampoUbicacionInput = z.infer<typeof crearCampoUbicacionSchema>;
+
+export const actualizarCampoUbicacionSchema = z.object({
+  requerido: z.boolean(),
+});
+
+export type ActualizarCampoUbicacionInput = z.infer<
+  typeof actualizarCampoUbicacionSchema
+>;

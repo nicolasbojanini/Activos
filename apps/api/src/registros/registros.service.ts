@@ -51,6 +51,14 @@ function esCampoTextoOpcional(campo: string): campo is CampoTextoOpcional {
 /** Prefijo de clave usado en `cambios` para diffs de CampoPersonalizado: `personalizado:<id>`. */
 const PREFIJO_CAMPO_PERSONALIZADO = 'personalizado:';
 
+/**
+ * Prefijo de clave para diffs de CampoUbicacion (campos adicionales de la
+ * "ubicación activa" — Torre, Piso, etc., ver ubicacion-relocate.ts en
+ * mobile): `ubicacionCampo:<id>`. El campo base "Ubicación" en cambio usa
+ * la clave `ubicacionNombre` existente, no este prefijo.
+ */
+const PREFIJO_CAMPO_UBICACION = 'ubicacionCampo:';
+
 function aTextoPlano(valor: unknown): string {
   if (typeof valor === 'string') return valor;
   if (typeof valor === 'number' || typeof valor === 'boolean') {
@@ -340,6 +348,7 @@ export class RegistrosService {
 
     if (dto.cambios) {
       const camposPersonalizadosNuevos: Record<string, string> = {};
+      const camposUbicacionNuevos: Record<string, string> = {};
 
       for (const [campo, diff] of Object.entries(dto.cambios)) {
         const despues = (diff as { despues?: unknown }).despues;
@@ -377,19 +386,33 @@ export class RegistrosService {
         } else if (campo.startsWith(PREFIJO_CAMPO_PERSONALIZADO)) {
           const id = campo.slice(PREFIJO_CAMPO_PERSONALIZADO.length);
           camposPersonalizadosNuevos[id] = aTextoPlano(despues);
+        } else if (campo.startsWith(PREFIJO_CAMPO_UBICACION)) {
+          const id = campo.slice(PREFIJO_CAMPO_UBICACION.length);
+          camposUbicacionNuevos[id] = aTextoPlano(despues);
         }
       }
 
-      if (Object.keys(camposPersonalizadosNuevos).length > 0) {
+      if (
+        Object.keys(camposPersonalizadosNuevos).length > 0 ||
+        Object.keys(camposUbicacionNuevos).length > 0
+      ) {
         const activo = await tx.activo.findUniqueOrThrow({
           where: { id: activoId },
         });
-        const actuales =
-          (activo.camposPersonalizados as Record<string, string> | null) ?? {};
-        data.camposPersonalizados = {
-          ...actuales,
-          ...camposPersonalizadosNuevos,
-        };
+        if (Object.keys(camposPersonalizadosNuevos).length > 0) {
+          const actuales =
+            (activo.camposPersonalizados as Record<string, string> | null) ??
+            {};
+          data.camposPersonalizados = {
+            ...actuales,
+            ...camposPersonalizadosNuevos,
+          };
+        }
+        if (Object.keys(camposUbicacionNuevos).length > 0) {
+          const actuales =
+            (activo.camposUbicacion as Record<string, string> | null) ?? {};
+          data.camposUbicacion = { ...actuales, ...camposUbicacionNuevos };
+        }
       }
     }
 

@@ -49,6 +49,7 @@ model Cliente {
   asignaciones         AsignacionProyecto[]
   configuracionCampos  ConfiguracionCampo[]
   camposPersonalizados CampoPersonalizado[]
+  camposUbicacion      CampoUbicacion[]
   createdAt            DateTime      @default(now())
   updatedAt            DateTime      @updatedAt
 }
@@ -78,6 +79,22 @@ model CampoPersonalizado {
   cliente   Cliente  @relation(fields: [clienteId], references: [id])
   etiqueta  String
   visible   Boolean  @default(true)
+  requerido Boolean  @default(false)
+  orden     Int      @default(0)
+  createdAt DateTime @default(now())
+}
+
+/// Campo adicional de la "ubicación activa" de la sesión móvil (Torre, Piso,
+/// Sede, etc.), además del campo base "Ubicación" (fijo, no es una fila de
+/// esta tabla). El valor por activo se guarda en Activo.camposUbicacion
+/// (tenant DB) como {[id]: valor} — igual mecánica que CampoPersonalizado,
+/// pero sin `visible`: crear el campo ya implica pedirlo siempre. Máximo 5
+/// filas por cliente (la API lo valida): junto con "Ubicación" son 6 en total.
+model CampoUbicacion {
+  id        String   @id @default(cuid())
+  clienteId String
+  cliente   Cliente  @relation(fields: [clienteId], references: [id])
+  etiqueta  String
   requerido Boolean  @default(false)
   orden     Int      @default(0)
   createdAt DateTime @default(now())

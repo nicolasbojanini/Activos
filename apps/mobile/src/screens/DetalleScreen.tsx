@@ -5,7 +5,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import * as Crypto from 'expo-crypto';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { colors, radius, spacing } from '@adn/ui-tokens';
-import type { CampoPersonalizadoOutput, ConfiguracionCampoOutput, EstadoFisico } from '@adn/shared';
+import type { CampoPersonalizadoOutput, CampoUbicacionOutput, ConfiguracionCampoOutput, EstadoFisico } from '@adn/shared';
 import { obtenerActivoLocal } from '../db/sync';
 import { useProyectoActual } from '../lib/useProyectoActual';
 import { useConfiguracionCampos } from '../lib/useConfiguracionCampos';
@@ -49,7 +49,12 @@ const CAMPO_VALOR: Record<string, (activo: ActivoLocal) => string> = {
   vidaUtilMeses: (a) => (a.vidaUtilMeses ? `${a.vidaUtilMeses} meses` : '—'),
 };
 
-function ficha(activo: ActivoLocal, campos: ConfiguracionCampoOutput[], camposPersonalizados: CampoPersonalizadoOutput[]) {
+function ficha(
+  activo: ActivoLocal,
+  campos: ConfiguracionCampoOutput[],
+  camposPersonalizados: CampoPersonalizadoOutput[],
+  camposUbicacion: CampoUbicacionOutput[],
+) {
   const filas = campos
     .filter((c) => c.visible)
     .map((c) => ({ label: c.etiqueta, valor: CAMPO_VALOR[c.campo]?.(activo) ?? '—' }));
@@ -62,13 +67,20 @@ function ficha(activo: ActivoLocal, campos: ConfiguracionCampoOutput[], camposPe
     .map((cp) => ({ label: cp.etiqueta, valor: valoresPersonalizados[cp.id] }))
     .filter((f): f is { label: string; valor: string } => !!f.valor);
 
-  return [...filas, ...personalizados];
+  const valoresUbicacion: Record<string, string> = activo.camposUbicacionJson
+    ? (JSON.parse(activo.camposUbicacionJson) as Record<string, string>)
+    : {};
+  const ubicacionExtra = camposUbicacion
+    .map((cu) => ({ label: cu.etiqueta, valor: valoresUbicacion[cu.id] }))
+    .filter((f): f is { label: string; valor: string } => !!f.valor);
+
+  return [...filas, ...personalizados, ...ubicacionExtra];
 }
 
 export function DetalleScreen({ route, navigation }: Props) {
   const { activoId, escaneado } = route.params;
   const { proyecto } = useProyectoActual();
-  const { campos, camposPersonalizados } = useConfiguracionCampos();
+  const { campos, camposPersonalizados, camposUbicacion } = useConfiguracionCampos();
   const [enviando, setEnviando] = useState(false);
   const queryClient = useQueryClient();
 
@@ -87,7 +99,10 @@ export function DetalleScreen({ route, navigation }: Props) {
   const enviarRegistro = async (estado: 'AUDITADO' | 'FALTANTE') => {
     if (!proyecto || !resultado) return;
     setEnviando(true);
-    const reubicacion = calcularReubicacionAutomatica(resultado.activo.ubicacionSede);
+    const camposUbicacionActuales: Record<string, string> = resultado.activo.camposUbicacionJson
+      ? (JSON.parse(resultado.activo.camposUbicacionJson) as Record<string, string>)
+      : {};
+    const reubicacion = calcularReubicacionAutomatica(resultado.activo.ubicacionSede, camposUbicacionActuales);
     // Un cambio de ubicación es una diferencia real; solo se escala el confirm rápido
     // ("coincide") — un FALTANTE queda igual, aunque el diff se adjunta por trazabilidad.
     const estadoFinal = reubicacion && estado === 'AUDITADO' ? 'DIFERENCIA' : estado;
@@ -161,7 +176,7 @@ export function DetalleScreen({ route, navigation }: Props) {
         </View>
 
         <View style={styles.fichaCard}>
-          {ficha(activo, campos, camposPersonalizados).map((campo, i) => (
+          {ficha(activo, campos, camposPersonalizados, camposUbicacion).map((campo, i) => (
             <View key={campo.label} style={[styles.fichaRow, i === 0 && { borderTopWidth: 0 }]}>
               <Text style={styles.fichaLabel}>{campo.label}</Text>
               <Text style={styles.fichaValor}>{campo.valor}</Text>

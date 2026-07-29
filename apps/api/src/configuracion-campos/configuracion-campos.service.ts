@@ -7,9 +7,11 @@ import {
   CAMPO_IDENTIDAD,
   CAMPOS_ACTIVO_CATALOGO,
   type ActualizarCampoPersonalizadoInput,
+  type ActualizarCampoUbicacionInput,
   type ActualizarConfiguracionCamposInput,
   type ActualizarFotoObligatoriaInput,
   type CrearCampoPersonalizadoInput,
+  type CrearCampoUbicacionInput,
 } from '@adn/shared';
 import { ControlPrismaService } from '../prisma/control-prisma.service';
 
@@ -157,6 +159,55 @@ export class ConfiguracionCamposService {
   ) {
     return this.control.campoPersonalizado.update({
       where: { id: campoPersonalizadoId },
+      data: dto,
+    });
+  }
+
+  async obtenerCamposUbicacion(clienteId: string) {
+    return this.control.campoUbicacion.findMany({
+      where: { clienteId },
+      orderBy: { orden: 'asc' },
+    });
+  }
+
+  /**
+   * "Ubicación" (el campo base) no vive en esta tabla — es fijo, siempre
+   * presente. Estas filas son los campos ADICIONALES (Torre, Piso, etc.), y
+   * la ubicación activa admite hasta 6 campos en total, así que acá el tope
+   * es 5.
+   */
+  async crearCampoUbicacion(clienteId: string, dto: CrearCampoUbicacionInput) {
+    const cliente = await this.control.cliente.findUnique({
+      where: { id: clienteId },
+    });
+    if (!cliente) {
+      throw new NotFoundException('Cliente no encontrado');
+    }
+    const actuales = await this.control.campoUbicacion.count({
+      where: { clienteId },
+    });
+    if (actuales >= 5) {
+      throw new BadRequestException(
+        'La ubicación activa admite máximo 6 campos en total (5 adicionales, más "Ubicación") — elimina uno antes de agregar otro',
+      );
+    }
+    return this.control.campoUbicacion.create({
+      data: { clienteId, etiqueta: dto.etiqueta, requerido: dto.requerido },
+    });
+  }
+
+  async eliminarCampoUbicacion(campoUbicacionId: string) {
+    await this.control.campoUbicacion.delete({
+      where: { id: campoUbicacionId },
+    });
+  }
+
+  async actualizarCampoUbicacion(
+    campoUbicacionId: string,
+    dto: ActualizarCampoUbicacionInput,
+  ) {
+    return this.control.campoUbicacion.update({
+      where: { id: campoUbicacionId },
       data: dto,
     });
   }

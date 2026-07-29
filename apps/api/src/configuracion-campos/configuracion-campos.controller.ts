@@ -17,6 +17,10 @@ import {
   type ActualizarCampoPersonalizadoDto,
 } from './dto/actualizar-campo-personalizado.dto';
 import {
+  actualizarCampoUbicacionSchema,
+  type ActualizarCampoUbicacionDto,
+} from './dto/actualizar-campo-ubicacion.dto';
+import {
   actualizarConfiguracionCamposSchema,
   type ActualizarConfiguracionCamposDto,
 } from './dto/actualizar-configuracion-campos.dto';
@@ -28,6 +32,10 @@ import {
   crearCampoPersonalizadoSchema,
   type CrearCampoPersonalizadoDto,
 } from './dto/crear-campo-personalizado.dto';
+import {
+  crearCampoUbicacionSchema,
+  type CrearCampoUbicacionDto,
+} from './dto/crear-campo-ubicacion.dto';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -47,12 +55,14 @@ export class ConfiguracionCamposController {
     summary: 'Catálogo de campos + configuración actual del cliente',
   })
   async obtener(@Param('clienteId') clienteId: string) {
-    const [campos, camposPersonalizados, fotoObligatoria] = await Promise.all([
-      this.service.obtenerCampos(clienteId),
-      this.service.obtenerCamposPersonalizados(clienteId),
-      this.service.obtenerFotoObligatoria(clienteId),
-    ]);
-    return { campos, camposPersonalizados, fotoObligatoria };
+    const [campos, camposPersonalizados, fotoObligatoria, camposUbicacion] =
+      await Promise.all([
+        this.service.obtenerCampos(clienteId),
+        this.service.obtenerCamposPersonalizados(clienteId),
+        this.service.obtenerFotoObligatoria(clienteId),
+        this.service.obtenerCamposUbicacion(clienteId),
+      ]);
+    return { campos, camposPersonalizados, fotoObligatoria, camposUbicacion };
   }
 
   @Patch('foto-obligatoria')
@@ -105,5 +115,36 @@ export class ConfiguracionCamposController {
     dto: ActualizarCampoPersonalizadoDto,
   ) {
     return this.service.actualizarCampoPersonalizado(campoId, dto);
+  }
+
+  @Post('campos-ubicacion')
+  @ApiOperation({
+    summary:
+      'Crear un campo adicional de la ubicación activa (Torre, Piso, etc.) — máximo 5, además de "Ubicación"',
+  })
+  crearCampoUbicacion(
+    @Param('clienteId') clienteId: string,
+    @Body(new ZodValidationPipe(crearCampoUbicacionSchema))
+    dto: CrearCampoUbicacionDto,
+  ) {
+    return this.service.crearCampoUbicacion(clienteId, dto);
+  }
+
+  @Delete('campos-ubicacion/:campoId')
+  @ApiOperation({ summary: 'Eliminar un campo de la ubicación activa' })
+  eliminarCampoUbicacion(@Param('campoId') campoId: string) {
+    return this.service.eliminarCampoUbicacion(campoId);
+  }
+
+  @Patch('campos-ubicacion/:campoId')
+  @ApiOperation({
+    summary: 'Actualizar si un campo de la ubicación activa es obligatorio',
+  })
+  actualizarCampoUbicacion(
+    @Param('campoId') campoId: string,
+    @Body(new ZodValidationPipe(actualizarCampoUbicacionSchema))
+    dto: ActualizarCampoUbicacionDto,
+  ) {
+    return this.service.actualizarCampoUbicacion(campoId, dto);
   }
 }

@@ -8,7 +8,7 @@ import { colors, radius, spacing } from '@adn/ui-tokens';
 import type { CategoriaActivo } from '@adn/shared';
 import { getProyecto } from '../lib/services';
 import { useAuthStore } from '../lib/auth-store';
-import { useUbicacionActivaStore } from '../lib/ubicacion-activa-store';
+import { CLAVE_UBICACION_BASE, useUbicacionActivaStore } from '../lib/ubicacion-activa-store';
 import { CircularProgress } from '../components/CircularProgress';
 import { CategoriaIcon } from '../components/CategoriaIcon';
 import { EstadoBadge } from '../components/EstadoBadge';
@@ -327,7 +327,7 @@ export function InicioScreen({ navigation }: Props) {
             {ubicacionActiva && (
               <View style={styles.ubicacionActivaBar}>
                 <MapPin size={14} color={colors.brand.blue} />
-                <Text style={styles.ubicacionActivaTexto}>Ubicación activa: {ubicacionActiva.sede}</Text>
+                <Text style={styles.ubicacionActivaTexto}>Ubicación activa: {ubicacionActiva[CLAVE_UBICACION_BASE]}</Text>
               </View>
             )}
 
@@ -379,7 +379,7 @@ export function InicioScreen({ navigation }: Props) {
         <Pressable onPress={() => navigation.navigate('Ubicacion')} style={styles.ctaButton}>
           <MapPin size={20} color="#fff" strokeWidth={1.8} />
           <Text style={styles.ctaLabel}>
-            {ubicacionActiva ? `Ubicación: ${ubicacionActiva.sede}` : 'Ingresar ubicación'}
+            {ubicacionActiva ? `Ubicación: ${ubicacionActiva[CLAVE_UBICACION_BASE]}` : 'Ingresar ubicación'}
           </Text>
         </Pressable>
       </SafeAreaView>

@@ -7,7 +7,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { CategoriaActivo, EstadoFisico } from '@adn/shared';
 import { colors, radius, spacing } from '@adn/ui-tokens';
 import { encolarRegistro } from '../lib/registro-offline';
-import { useUbicacionActivaStore } from '../lib/ubicacion-activa-store';
+import { CLAVE_UBICACION_BASE, useUbicacionActivaStore } from '../lib/ubicacion-activa-store';
 import { useConfiguracionCampos } from '../lib/useConfiguracionCampos';
 import { useProyectoActual } from '../lib/useProyectoActual';
 import { capturarFoto, eliminarFotoLocal, type FotoCapturada } from '../lib/fotos';
@@ -58,6 +58,9 @@ const CAMPOS_CON_WIDGET_PROPIO = new Set([
 /** Prefijo de clave de `cambios` para campos personalizados — debe coincidir con registros.service.ts (backend). */
 const PREFIJO_CAMPO_PERSONALIZADO = 'personalizado:';
 
+/** Prefijo de clave de `cambios` para campos de ubicación adicionales — debe coincidir con registros.service.ts (backend). */
+const PREFIJO_CAMPO_UBICACION = 'ubicacionCampo:';
+
 export function NoRegistradoScreen({ route, navigation }: Props) {
   const { codigo } = route.params;
   const { proyecto } = useProyectoActual();
@@ -68,7 +71,7 @@ export function NoRegistradoScreen({ route, navigation }: Props) {
   const [nombre, setNombre] = useState('');
   const [categoria, setCategoria] = useState<CategoriaActivo>('OTRO');
   const [estadoFisico, setEstadoFisico] = useState<keyof typeof EstadoFisico>('BUENO');
-  const [ubicacionTexto, setUbicacionTexto] = useState(ubicacionActiva?.sede ?? '');
+  const [ubicacionTexto, setUbicacionTexto] = useState(ubicacionActiva?.[CLAVE_UBICACION_BASE] ?? '');
   const [responsable, setResponsable] = useState('');
   const [centroCosto, setCentroCosto] = useState('');
   const [nota, setNota] = useState('');
@@ -130,6 +133,14 @@ export function NoRegistradoScreen({ route, navigation }: Props) {
       if (ubicacionTexto.trim()) cambios.ubicacionNombre = { antes: null, despues: ubicacionTexto.trim() };
       if (responsable.trim()) cambios.responsable = { antes: null, despues: responsable.trim() };
       if (centroCosto.trim()) cambios.centroCosto = { antes: null, despues: centroCosto.trim() };
+      // Campos de ubicación adicionales (Torre, Piso, etc.): solo vienen de la
+      // ubicación activa de la sesión, no tienen un campo manual propio acá.
+      if (ubicacionActiva) {
+        for (const [clave, valor] of Object.entries(ubicacionActiva)) {
+          if (clave === CLAVE_UBICACION_BASE || !valor.trim()) continue;
+          cambios[`${PREFIJO_CAMPO_UBICACION}${clave}`] = { antes: null, despues: valor.trim() };
+        }
+      }
       for (const c of camposExtra) {
         const valor = valoresExtra[c.campo];
         if (valor?.trim()) cambios[c.campo] = { antes: null, despues: valor.trim() };

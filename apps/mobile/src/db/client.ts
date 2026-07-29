@@ -46,6 +46,7 @@ export function inicializarBaseLocal() {
       proveedor TEXT,
       vida_util_meses INTEGER,
       campos_personalizados_json TEXT,
+      campos_ubicacion_json TEXT,
       estado_servidor TEXT NOT NULL,
       ultimo_auditor_servidor TEXT
     );
@@ -103,6 +104,7 @@ export function inicializarBaseLocal() {
     'medidas TEXT',
     'capacidad TEXT',
     'campos_personalizados_json TEXT',
+    'campos_ubicacion_json TEXT',
   ]) {
     try {
       sqlite.execSync(`ALTER TABLE activos_local ADD COLUMN ${columna};`);
