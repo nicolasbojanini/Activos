@@ -9,6 +9,7 @@ import { ApiError } from '../lib/api';
 import {
   actualizarCampoPersonalizado,
   actualizarConfiguracionCampos,
+  actualizarFotoObligatoria,
   crearCampoPersonalizado,
   eliminarCampoPersonalizado,
   getConfiguracionCampos,
@@ -73,6 +74,11 @@ export function ConfigurarCampos() {
   const actualizarPersonalizadoMutation = useMutation({
     mutationFn: ({ campoId, visible, requerido }: { campoId: string; visible?: boolean; requerido?: boolean }) =>
       actualizarCampoPersonalizado(clienteId!, campoId, { visible, requerido }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['configuracion-campos', clienteId] }),
+  });
+
+  const fotoObligatoriaMutation = useMutation({
+    mutationFn: (valor: boolean) => actualizarFotoObligatoria(clienteId!, valor),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['configuracion-campos', clienteId] }),
   });
 
@@ -174,6 +180,43 @@ export function ConfigurarCampos() {
           >
             {guardarMutation.isPending ? 'Guardando…' : 'Guardar configuración'}
           </button>
+
+          <div
+            style={{
+              background: '#fff',
+              border: '1px solid var(--adn-ink-200)',
+              borderRadius: 'var(--adn-radius-lg)',
+              padding: 20,
+              marginBottom: 20,
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+            }}
+          >
+            <div>
+              <h3 style={{ fontSize: 15, marginBottom: 4 }}>Foto obligatoria</h3>
+              <p style={{ fontSize: 12, color: 'var(--adn-ink-500)', margin: 0 }}>
+                Si está activo, la primera foto («Vista general») es obligatoria para guardar la auditoría de un
+                activo. Las otras tres fotos siempre son opcionales.
+              </p>
+            </div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={data?.fotoObligatoria ?? true}
+                disabled={fotoObligatoriaMutation.isPending || isLoading}
+                onChange={(e) => fotoObligatoriaMutation.mutate(e.target.checked)}
+              />
+              Obligatoria
+            </label>
+          </div>
+          {fotoObligatoriaMutation.isError && (
+            <p style={{ fontSize: 12, color: 'var(--adn-danger)', marginTop: -12, marginBottom: 20 }}>
+              {fotoObligatoriaMutation.error instanceof ApiError
+                ? fotoObligatoriaMutation.error.message
+                : 'No se pudo actualizar la configuración de fotos'}
+            </p>
+          )}
 
           <div
             style={{

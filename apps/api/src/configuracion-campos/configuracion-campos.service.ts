@@ -8,6 +8,7 @@ import {
   CAMPOS_ACTIVO_CATALOGO,
   type ActualizarCampoPersonalizadoInput,
   type ActualizarConfiguracionCamposInput,
+  type ActualizarFotoObligatoriaInput,
   type CrearCampoPersonalizadoInput,
 } from '@adn/shared';
 import { ControlPrismaService } from '../prisma/control-prisma.service';
@@ -57,6 +58,32 @@ export class ConfiguracionCamposService {
     return this.control.campoPersonalizado.findMany({
       where: { clienteId },
       orderBy: { orden: 'asc' },
+    });
+  }
+
+  /**
+   * A diferencia de los campos de la ficha, las fotos no son parte del
+   * catálogo (packages/shared/src/campos-catalogo.ts) — es un único
+   * interruptor por cliente, guardado directo en Cliente en vez de en
+   * ConfiguracionCampo, porque solo hay un slot ("Vista general") que puede
+   * ser obligatorio.
+   */
+  async obtenerFotoObligatoria(clienteId: string): Promise<boolean> {
+    const cliente = await this.control.cliente.findUniqueOrThrow({
+      where: { id: clienteId },
+      select: { fotoObligatoria: true },
+    });
+    return cliente.fotoObligatoria;
+  }
+
+  async actualizarFotoObligatoria(
+    clienteId: string,
+    dto: ActualizarFotoObligatoriaInput,
+  ) {
+    return this.control.cliente.update({
+      where: { id: clienteId },
+      data: { fotoObligatoria: dto.fotoObligatoria },
+      select: { fotoObligatoria: true },
     });
   }
 

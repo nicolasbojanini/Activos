@@ -21,6 +21,10 @@ import {
   type ActualizarConfiguracionCamposDto,
 } from './dto/actualizar-configuracion-campos.dto';
 import {
+  actualizarFotoObligatoriaSchema,
+  type ActualizarFotoObligatoriaDto,
+} from './dto/actualizar-foto-obligatoria.dto';
+import {
   crearCampoPersonalizadoSchema,
   type CrearCampoPersonalizadoDto,
 } from './dto/crear-campo-personalizado.dto';
@@ -43,11 +47,24 @@ export class ConfiguracionCamposController {
     summary: 'Catálogo de campos + configuración actual del cliente',
   })
   async obtener(@Param('clienteId') clienteId: string) {
-    const [campos, camposPersonalizados] = await Promise.all([
+    const [campos, camposPersonalizados, fotoObligatoria] = await Promise.all([
       this.service.obtenerCampos(clienteId),
       this.service.obtenerCamposPersonalizados(clienteId),
+      this.service.obtenerFotoObligatoria(clienteId),
     ]);
-    return { campos, camposPersonalizados };
+    return { campos, camposPersonalizados, fotoObligatoria };
+  }
+
+  @Patch('foto-obligatoria')
+  @ApiOperation({
+    summary: 'Si la primera foto ("Vista general") es obligatoria para el cliente',
+  })
+  actualizarFotoObligatoria(
+    @Param('clienteId') clienteId: string,
+    @Body(new ZodValidationPipe(actualizarFotoObligatoriaSchema))
+    dto: ActualizarFotoObligatoriaDto,
+  ) {
+    return this.service.actualizarFotoObligatoria(clienteId, dto);
   }
 
   @Put('configuracion-campos')

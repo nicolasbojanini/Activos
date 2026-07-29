@@ -103,7 +103,7 @@ type FormValues = z.infer<typeof formSchema>;
 export function ActualizarScreen({ route, navigation }: Props) {
   const { activoId } = route.params;
   const { proyecto } = useProyectoActual();
-  const { campos, camposPersonalizados } = useConfiguracionCampos();
+  const { campos, camposPersonalizados, fotoObligatoria } = useConfiguracionCampos();
   const [enviando, setEnviando] = useState(false);
   const [fotos, setFotos] = useState<FotoCapturada[]>([]);
   const [valoresExtra, setValoresExtra] = useState<Record<string, string>>({});
@@ -221,7 +221,7 @@ export function ActualizarScreen({ route, navigation }: Props) {
       if (!cp.requerido) continue;
       if (vacio(valoresExtra[`${PREFIJO_CAMPO_PERSONALIZADO}${cp.id}`])) faltantes.push(cp.etiqueta);
     }
-    if (!fotos.some((f) => f.orden === ORDEN_FOTO_OBLIGATORIA)) {
+    if (fotoObligatoria && !fotos.some((f) => f.orden === ORDEN_FOTO_OBLIGATORIA)) {
       faltantes.push('Foto: vista general');
     }
     if (faltantes.length > 0) {
@@ -479,7 +479,7 @@ export function ActualizarScreen({ route, navigation }: Props) {
         />
         {errors.nota && <Text style={styles.errorTexto}>{errors.nota.message}</Text>}
 
-        <FotosGrid fotos={fotos} onCapturar={handleCapturarFoto} onQuitar={handleQuitarFoto} />
+        <FotosGrid fotos={fotos} onCapturar={handleCapturarFoto} onQuitar={handleQuitarFoto} fotoObligatoria={fotoObligatoria} />
       </ScrollView>
 
       <SafeAreaView edges={['bottom']} style={styles.acciones}>

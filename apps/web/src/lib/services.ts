@@ -57,15 +57,24 @@ export function eliminarCliente(clienteId: string) {
 }
 
 export function getConfiguracionCampos(idCliente: string) {
-  return apiFetch<{ campos: ConfiguracionCampoOutput[]; camposPersonalizados: CampoPersonalizadoOutput[] }>(
-    `/clientes/${idCliente}/configuracion-campos`,
-  );
+  return apiFetch<{
+    campos: ConfiguracionCampoOutput[];
+    camposPersonalizados: CampoPersonalizadoOutput[];
+    fotoObligatoria: boolean;
+  }>(`/clientes/${idCliente}/configuracion-campos`);
 }
 
 export function actualizarConfiguracionCampos(idCliente: string, dto: ActualizarConfiguracionCamposInput) {
   return apiFetch<ConfiguracionCampoOutput[]>(`/clientes/${idCliente}/configuracion-campos`, {
     method: 'PUT',
     body: dto,
+  });
+}
+
+export function actualizarFotoObligatoria(idCliente: string, fotoObligatoria: boolean) {
+  return apiFetch<{ fotoObligatoria: boolean }>(`/clientes/${idCliente}/foto-obligatoria`, {
+    method: 'PATCH',
+    body: { fotoObligatoria },
   });
 }
 

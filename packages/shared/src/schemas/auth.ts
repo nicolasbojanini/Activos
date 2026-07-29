@@ -148,3 +148,17 @@ export const actualizarCampoPersonalizadoSchema = z.object({
 export type ActualizarCampoPersonalizadoInput = z.infer<
   typeof actualizarCampoPersonalizadoSchema
 >;
+
+/**
+ * A diferencia de los campos del catálogo (packages/shared/src/campos-catalogo.ts),
+ * las fotos no son parte de la ficha del activo — es un único interruptor por
+ * cliente: si la primera foto ("Vista general") es obligatoria o no. Las otras
+ * tres siempre son opcionales.
+ */
+export const actualizarFotoObligatoriaSchema = z.object({
+  fotoObligatoria: z.boolean(),
+});
+
+export type ActualizarFotoObligatoriaInput = z.infer<
+  typeof actualizarFotoObligatoriaSchema
+>;

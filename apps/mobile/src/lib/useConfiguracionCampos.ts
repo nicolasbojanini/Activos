@@ -10,6 +10,9 @@ export function useConfiguracionCampos() {
   return {
     campos: data?.campos ?? [],
     camposPersonalizados: data?.camposPersonalizados ?? [],
+    // Default true: hasta que cargue la config, es más seguro exigir la
+    // foto (comportamiento previo a este ajuste) que dejarla pasar sin querer.
+    fotoObligatoria: data?.fotoObligatoria ?? true,
     ...rest,
   };
 }

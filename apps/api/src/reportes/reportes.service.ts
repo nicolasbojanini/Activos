@@ -153,21 +153,22 @@ export class ReportesService {
   ) {}
 
   /**
-   * ZIP con fotos confirmadas del proyecto.
+   * ZIP con fotos confirmadas del proyecto. Nombre de archivo de cada foto:
+   * siempre `{codigoAnterior}-{consecutivo}.jpg`, sin fecha — el consecutivo
+   * es un contador por activo (no por registro), así que sigue siendo único
+   * aunque el mismo activo aporte fotos de más de un registro dentro del ZIP.
    *
    * Sin `desde`/`hasta`: comportamiento original — solo el último registro
    * de cada activo (una foto por activo por slot, sin importar cuántas
-   * auditorías tenga en su historial). Nombre de archivo:
-   * `{codigoAnterior}-{consecutivo}.jpg`.
+   * auditorías tenga en su historial).
    *
    * Con `desde`/`hasta` (filtro por fecha de captura / auditadoEn): TODOS
    * los registros del proyecto cuya auditoría cayó en ese rango, sin
    * limitarse al último por activo — es lo que permite descargar un
    * proyecto grande en tandas (ej. "lo capturado esta semana") sin huecos
-   * ni duplicados entre una descarga y la siguiente. Como un mismo activo
-   * puede tener más de un registro dentro del rango, acá el nombre incluye
-   * la fecha de esa auditoría para no pisar un archivo con otro:
-   * `{codigoAnterior}-{fecha}-{consecutivo}.jpg`.
+   * ni duplicados entre una descarga y la siguiente. Los registros se
+   * recorren en orden cronológico para que el consecutivo de cada activo
+   * sea estable entre descargas.
    */
   async generarZipFotos(
     tenantPrisma: TenantPrismaClient,
@@ -184,7 +185,6 @@ export class ReportesService {
     interface RegistroParaZip {
       id: string;
       codigoAnterior: string;
-      auditadoEn: Date | null;
     }
 
     let registros: RegistroParaZip[];
@@ -200,16 +200,18 @@ export class ReportesService {
         },
         select: {
           id: true,
-          auditadoEn: true,
           activo: { select: { codigoAnterior: true } },
         },
+        // Orden cronológico: el consecutivo de cada activo en el nombre de
+        // archivo depende del orden en que se recorren sus registros, así
+        // que sin esto podría variar entre una descarga y la siguiente.
+        orderBy: { auditadoEn: 'asc' },
       });
       registros = filas
         .filter((f) => f.activo)
         .map((f) => ({
           id: f.id,
           codigoAnterior: f.activo!.codigoAnterior,
-          auditadoEn: f.auditadoEn,
         }));
     } else {
       const ultimoPorActivo =
@@ -225,11 +227,7 @@ export class ReportesService {
         .map((activo): RegistroParaZip | null => {
           const registro = ultimoPorActivo.get(activo.id);
           return registro
-            ? {
-                id: registro.id,
-                codigoAnterior: activo.codigoAnterior,
-                auditadoEn: null,
-              }
+            ? { id: registro.id, codigoAnterior: activo.codigoAnterior }
             : null;
         })
         .filter((r): r is RegistroParaZip => r !== null);
@@ -251,15 +249,20 @@ export class ReportesService {
     }
 
     const archive = new ZipArchive({ zlib: { level: 9 } });
+    // Contador por activo (no por registro): con el filtro de fechas, un
+    // mismo activo puede aportar fotos de varios registros al ZIP — sin
+    // fecha en el nombre, este consecutivo es lo único que evita que un
+    // archivo pise a otro.
+    const consecutivoPorActivo = new Map<string, number>();
 
     for (const registro of registros) {
       const fotosDelRegistro = fotosPorRegistro.get(registro.id) ?? [];
-      const fecha = registro.auditadoEn?.toISOString().slice(0, 10);
       for (const foto of fotosDelRegistro) {
         const bytes = await this.s3.descargarObjeto(foto.s3Key);
-        const nombre = fecha
-          ? `${registro.codigoAnterior}-${fecha}-${foto.orden + 1}.jpg`
-          : `${registro.codigoAnterior}-${foto.orden + 1}.jpg`;
+        const consecutivo =
+          (consecutivoPorActivo.get(registro.codigoAnterior) ?? 0) + 1;
+        consecutivoPorActivo.set(registro.codigoAnterior, consecutivo);
+        const nombre = `${registro.codigoAnterior}-${consecutivo}.jpg`;
         archive.append(bytes, { name: nombre });
       }
     }

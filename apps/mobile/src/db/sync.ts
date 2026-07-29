@@ -18,6 +18,7 @@ const CLAVE_CURSOR_ACTIVOS = 'cursorActivos';
 export interface ConfiguracionCamposLocal {
   campos: ConfiguracionCampoOutput[];
   camposPersonalizados: CampoPersonalizadoOutput[];
+  fotoObligatoria: boolean;
 }
 
 export async function guardarProyectoActivo(proyecto: ProyectoOutput) {

@@ -43,6 +43,9 @@ model Cliente {
   dbHost               String        @default("localhost")
   dbPort               Int           @default(5432)
   estado               EstadoCliente @default(PROVISIONANDO)
+  /// Si la primera foto ("Vista general") es obligatoria al auditar un activo.
+  /// Es el único slot que puede ser obligatorio — los otros tres siempre son opcionales.
+  fotoObligatoria      Boolean       @default(true)
   asignaciones         AsignacionProyecto[]
   configuracionCampos  ConfiguracionCampo[]
   camposPersonalizados CampoPersonalizado[]

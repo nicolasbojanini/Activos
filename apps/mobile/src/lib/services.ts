@@ -77,9 +77,11 @@ export function getUbicaciones() {
 }
 
 export function getConfiguracionCampos() {
-  return apiFetch<{ campos: ConfiguracionCampoOutput[]; camposPersonalizados: CampoPersonalizadoOutput[] }>(
-    `/clientes/${clienteId()}/configuracion-campos`,
-  );
+  return apiFetch<{
+    campos: ConfiguracionCampoOutput[];
+    camposPersonalizados: CampoPersonalizadoOutput[];
+    fotoObligatoria: boolean;
+  }>(`/clientes/${clienteId()}/configuracion-campos`);
 }
 
 interface UploadEntry {

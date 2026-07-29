@@ -12,9 +12,11 @@ interface FotosGridProps {
   fotos: FotoCapturada[];
   onCapturar: (etiqueta: string, orden: number) => void;
   onQuitar: (orden: number) => void;
+  /** Configurable por cliente — si es obligatoria, solo aplica al slot 0 ("Vista general"). */
+  fotoObligatoria: boolean;
 }
 
-export function FotosGrid({ fotos, onCapturar, onQuitar }: FotosGridProps) {
+export function FotosGrid({ fotos, onCapturar, onQuitar, fotoObligatoria }: FotosGridProps) {
   return (
     <View>
       <View style={styles.headerRow}>
@@ -24,7 +26,7 @@ export function FotosGrid({ fotos, onCapturar, onQuitar }: FotosGridProps) {
       <View style={styles.grid}>
         {ETIQUETAS_FOTO.map((etiqueta, orden) => {
           const foto = fotos.find((f) => f.orden === orden);
-          const obligatoria = orden === ORDEN_FOTO_OBLIGATORIA;
+          const obligatoria = fotoObligatoria && orden === ORDEN_FOTO_OBLIGATORIA;
           return (
             <Pressable
               key={orden}
