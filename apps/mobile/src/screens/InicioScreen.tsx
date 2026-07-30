@@ -1,11 +1,22 @@
 import { memo, useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  Image,
+  Pressable,
+  RefreshControl,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronRight, CloudOff, MapPin, PlusCircle, RefreshCw, Search } from 'lucide-react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { colors, radius, spacing } from '@adn/ui-tokens';
-import type { CategoriaActivo } from '@adn/shared';
+import type { CategoriaActivo, ProyectoOutput } from '@adn/shared';
 import { getProyecto } from '../lib/services';
 import { useAuthStore } from '../lib/auth-store';
 import { CLAVE_UBICACION_BASE, useUbicacionActivaStore } from '../lib/ubicacion-activa-store';
@@ -82,6 +93,7 @@ export function InicioScreen({ navigation }: Props) {
   const [sincronizando, setSincronizando] = useState(false);
   const [errorSesion, setErrorSesion] = useState<string | null>(null);
   const [descargando, setDescargando] = useState(false);
+  const [refrescando, setRefrescando] = useState(false);
 
   const confirmarCerrarSesion = () => {
     Alert.alert('Cerrar sesión', '¿Seguro que quieres cerrar tu sesión?', [
@@ -109,6 +121,33 @@ export function InicioScreen({ navigation }: Props) {
 
   const conectado = useConectividad(() => void ejecutarSincronizacion());
 
+  // Delta: trae solo lo que cambió en el servidor desde la última sincronización
+  // (ediciones web, re-imports, capturas de otros auditores) en vez de
+  // re-descargar el inventario completo. Corre al abrir la app (bootstrap) y
+  // también a mano con "deslizar para actualizar" — nunca automáticamente por
+  // cada activo que se abre, porque eso sí sería lento con inventarios grandes.
+  const aplicarDeltaSesion = async (proyectoActual: ProyectoOutput) => {
+    await guardarProyectoActivo(proyectoActual);
+    await Promise.all([refrescarConfiguracionCampos(), actualizarSesionDelta(proyectoActual)]);
+  };
+
+  const onRefresh = async () => {
+    if (!proyectoId) return;
+    setRefrescando(true);
+    try {
+      await sincronizarPendientes();
+      const proyectoActual = await getProyecto(proyectoId);
+      await aplicarDeltaSesion(proyectoActual);
+      invalidarLocal();
+    } catch {
+      // Deslizar para actualizar es una acción explícita y de bajo riesgo: si
+      // falla (sin señal, timeout) la lista sigue mostrando el espejo local tal
+      // cual estaba, sin alertas invasivas — el usuario puede volver a intentar.
+    } finally {
+      setRefrescando(false);
+    }
+  };
+
   // Bootstrap: intenta refrescar el espejo local con red; si falla y ya había
   // un espejo local previo DEL MISMO proyecto, seguimos con ese (silencioso,
   // es el caso normal de "sin señal en bodega"). Si falla y NO hay espejo
@@ -134,11 +173,7 @@ export function InicioScreen({ navigation }: Props) {
         if (!habiaSesion) {
           await descargarSesion(proyecto);
         } else {
-          await guardarProyectoActivo(proyecto);
-          // Delta: trae solo lo que cambió en el servidor desde la última
-          // apertura (ediciones web, re-imports, capturas de otros
-          // auditores) en vez de re-descargar el inventario completo.
-          await Promise.all([refrescarConfiguracionCampos(), actualizarSesionDelta(proyecto)]);
+          await aplicarDeltaSesion(proyecto);
         }
         void queryClient.invalidateQueries({ queryKey: ['proyecto-local'] });
         void queryClient.invalidateQueries({ queryKey: ['resumen-local'] });
@@ -298,6 +333,9 @@ export function InicioScreen({ navigation }: Props) {
         removeClippedSubviews
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={{ paddingBottom: 130 }}
+        refreshControl={
+          <RefreshControl refreshing={refrescando} onRefresh={() => void onRefresh()} tintColor={colors.brand.blue} />
+        }
         ListHeaderComponent={
           <>
             <View style={styles.syncBar}>
