@@ -39,18 +39,23 @@ import {
 import { Roles } from '../auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
+import { TenantGuard } from '../auth/guards/tenant.guard';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe';
 
 @ApiTags('configuracion-campos')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
+// TenantGuard además de RolesGuard: sin esto, cualquier rol con acceso de
+// lectura (AUDITOR, y ahora CLIENTE) podía pedir la configuración de CUALQUIER
+// clienteId con solo cambiar el parámetro de la URL — el rol por sí solo no
+// confirma que el usuario esté realmente asignado a ESE cliente.
+@UseGuards(JwtAuthGuard, RolesGuard, TenantGuard)
 @Roles(Rol.ADN_ADMIN, Rol.COORDINADOR)
 @Controller('clientes/:clienteId')
 export class ConfiguracionCamposController {
   constructor(private readonly service: ConfiguracionCamposService) {}
 
   @Get('configuracion-campos')
-  @Roles(Rol.ADN_ADMIN, Rol.COORDINADOR, Rol.AUDITOR)
+  @Roles(Rol.ADN_ADMIN, Rol.COORDINADOR, Rol.AUDITOR, Rol.CLIENTE)
   @ApiOperation({
     summary: 'Catálogo de campos + configuración actual del cliente',
   })
@@ -67,7 +72,8 @@ export class ConfiguracionCamposController {
 
   @Patch('foto-obligatoria')
   @ApiOperation({
-    summary: 'Si la primera foto ("Vista general") es obligatoria para el cliente',
+    summary:
+      'Si la primera foto ("Vista general") es obligatoria para el cliente',
   })
   actualizarFotoObligatoria(
     @Param('clienteId') clienteId: string,

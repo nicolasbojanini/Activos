@@ -2,6 +2,8 @@ export const Rol = {
   ADN_ADMIN: 'ADN_ADMIN',
   COORDINADOR: 'COORDINADOR',
   AUDITOR: 'AUDITOR',
+  /** Portal de solo lectura para el personal del cliente auditado — sin acceso a la app móvil. */
+  CLIENTE: 'CLIENTE',
 } as const;
 export type Rol = (typeof Rol)[keyof typeof Rol];
 

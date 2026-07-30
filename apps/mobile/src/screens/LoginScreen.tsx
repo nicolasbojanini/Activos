@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ActivityIndicator, Image, KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useMutation } from '@tanstack/react-query';
 import { colors, radius, spacing } from '@adn/ui-tokens';
 import { login } from '../lib/services';
@@ -19,6 +19,16 @@ export function LoginScreen() {
   const mutation = useMutation({
     mutationFn: () => login(email.trim(), password),
     onSuccess: async (data) => {
+      // El perfil Cliente es exclusivamente del portal web (solo lectura de
+      // informes y auditorías) — nunca se persiste la sesión acá, para que no
+      // quede ningún rastro de un login "a medias" en el dispositivo.
+      if (data.usuario.rol === 'CLIENTE') {
+        Alert.alert(
+          'Acceso no disponible',
+          'Este perfil no tiene acceso desde la app móvil. Usa el portal web para ver informes y auditorías.',
+        );
+        return;
+      }
       await setSession(data);
       await resolverAsignacionActual();
     },

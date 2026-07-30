@@ -12,6 +12,8 @@ enum Rol {
   ADN_ADMIN
   COORDINADOR
   AUDITOR
+  /// Portal de solo lectura para el personal del cliente auditado — sin acceso a la app móvil.
+  CLIENTE
 }
 
 enum EstadoCliente {

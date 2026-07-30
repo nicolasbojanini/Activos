@@ -7,6 +7,7 @@ import type { ActivoListItemOutput } from '@adn/shared';
 import { Layout } from '../components/Layout';
 import { EstadoBadge } from '../components/Badge';
 import { ApiError } from '../lib/api';
+import { useAuthStore } from '../lib/auth-store';
 import { crearProyecto, getActivos, getProyectos, getResumenProyecto } from '../lib/services';
 
 const PAGE_SIZE = 10;
@@ -14,12 +15,21 @@ const PAGE_SIZE = 10;
 export function Auditorias() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const usuario = useAuthStore((s) => s.usuario);
+  // El rol Cliente es estrictamente de solo lectura: sin crear proyecto ni
+  // importar/reemplazar el inventario. El backend ya rechaza esas mutaciones
+  // para este rol — esto además evita mostrarle un formulario que sabemos
+  // que va a fallar.
+  const soloLectura = usuario?.rol === 'CLIENTE';
   const [q, setQ] = useState('');
   const [page, setPage] = useState(1);
   const [nombreProyecto, setNombreProyecto] = useState('');
   const [fechaCorte, setFechaCorte] = useState('');
 
   const { data: proyectos, isLoading: proyectosLoading } = useQuery({ queryKey: ['proyectos'], queryFn: getProyectos });
+  // GET /proyectos ya viene filtrado por asignación para cualquier rol que no
+  // sea ADN_ADMIN/COORDINADOR (ver TenantGuard) — para el rol Cliente esta
+  // lista nunca trae más de un proyecto: el suyo.
   const proyecto = proyectos?.[0];
 
   const crearProyectoMutation = useMutation({
@@ -89,6 +99,14 @@ export function Auditorias() {
       return (
         <Layout>
           <p>Cargando proyecto…</p>
+        </Layout>
+      );
+    }
+
+    if (soloLectura) {
+      return (
+        <Layout>
+          <p style={{ color: 'var(--adn-ink-500)' }}>Todavía no tienes ningún proyecto asignado.</p>
         </Layout>
       );
     }
@@ -197,25 +215,27 @@ export function Auditorias() {
           <p style={{ fontSize: 13, color: 'var(--adn-ink-500)', margin: '0 0 16px' }}>
             {resumen?.total ?? '—'} activos · sincronizado con la app
           </p>
-          <button
-            onClick={() => navigate(`/auditorias/${proyecto.id}/importar`)}
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 8,
-              background: 'var(--adn-blue-50)',
-              color: 'var(--adn-blue)',
-              border: 'none',
-              borderRadius: 'var(--adn-radius-md)',
-              padding: '10px 16px',
-              fontSize: 13,
-              fontWeight: 600,
-              cursor: 'pointer',
-            }}
-          >
-            <Upload size={16} strokeWidth={1.8} />
-            Importar / reemplazar base de datos
-          </button>
+          {!soloLectura && (
+            <button
+              onClick={() => navigate(`/auditorias/${proyecto.id}/importar`)}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 8,
+                background: 'var(--adn-blue-50)',
+                color: 'var(--adn-blue)',
+                border: 'none',
+                borderRadius: 'var(--adn-radius-md)',
+                padding: '10px 16px',
+                fontSize: 13,
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              <Upload size={16} strokeWidth={1.8} />
+              Importar / reemplazar base de datos
+            </button>
+          )}
         </div>
 
         <div

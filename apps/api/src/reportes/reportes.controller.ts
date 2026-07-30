@@ -28,7 +28,7 @@ import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe';
 @ApiTags('reportes')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RolesGuard, TenantGuard)
-@Roles(Rol.COORDINADOR, Rol.ADN_ADMIN)
+@Roles(Rol.COORDINADOR, Rol.ADN_ADMIN, Rol.CLIENTE)
 @Controller('clientes/:clienteId/proyectos')
 export class ReportesController {
   constructor(private readonly reportesService: ReportesService) {}

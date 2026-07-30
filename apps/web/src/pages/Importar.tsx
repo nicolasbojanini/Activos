@@ -1,10 +1,11 @@
 import { useCallback, useState } from 'react';
-import { useNavigate, useParams } from 'react-router';
+import { Navigate, useNavigate, useParams } from 'react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import * as XLSX from 'xlsx';
 import { UploadCloud, FileSpreadsheet, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { CAMPO_IDENTIDAD, type ImportCommitOutput, type ImportPreviewOutput } from '@adn/shared';
 import { Layout } from '../components/Layout';
+import { useAuthStore } from '../lib/auth-store';
 import { useClienteStore } from '../lib/cliente-store';
 import { commitImport, getConfiguracionCampos, previewImport } from '../lib/services';
 import { ApiError } from '../lib/api';
@@ -32,6 +33,7 @@ function esFilaVacia(fila: Record<string, unknown>): boolean {
 export function Importar() {
   const { proyectoId } = useParams<{ proyectoId: string }>();
   const navigate = useNavigate();
+  const usuario = useAuthStore((s) => s.usuario);
   const clienteId = useClienteStore((s) => s.clienteId);
 
   const { data: configuracion } = useQuery({
@@ -105,6 +107,13 @@ export function Importar() {
     const file = e.dataTransfer.files[0];
     if (file) handleFile(file);
   };
+
+  // Backend ya lo rechaza (COORDINADOR/ADN_ADMIN únicamente) — esto evita
+  // mostrarle a un usuario Cliente el formulario de una acción que sabemos
+  // que va a fallar.
+  if (usuario && usuario.rol !== 'ADN_ADMIN' && usuario.rol !== 'COORDINADOR') {
+    return <Navigate to="/auditorias" replace />;
+  }
 
   return (
     <Layout>

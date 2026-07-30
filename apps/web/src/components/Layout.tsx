@@ -5,11 +5,10 @@ import { useAuthStore } from '../lib/auth-store';
 import { useClienteStore } from '../lib/cliente-store';
 import logoAdnWhite from '../assets/logo-adn-white.png';
 
-const navItems = [
+const navItemsBase = [
   { to: '/auditorias', label: 'Auditorías', icon: ClipboardList, enabled: true },
   { to: '/activos', label: 'Activos', icon: Package, enabled: false },
   { to: '/reportes', label: 'Reportes', icon: FileBarChart, enabled: true },
-  { to: '/auditores', label: 'Auditores', icon: Users, enabled: true },
 ];
 
 export function Layout({ children }: { children: ReactNode }) {
@@ -25,8 +24,12 @@ export function Layout({ children }: { children: ReactNode }) {
     navigate('/login', { replace: true });
   };
 
+  // El rol Cliente es estrictamente de solo lectura sobre Auditorías/Reportes
+  // — sin "Auditores" (gestión de personal de ADN) ni "Clientes" (que ya
+  // estaba limitado a ADN_ADMIN/COORDINADOR).
   const items = [
-    ...navItems,
+    ...navItemsBase,
+    ...(usuario?.rol === 'CLIENTE' ? [] : [{ to: '/auditores', label: 'Auditores', icon: Users, enabled: true }]),
     ...(usuario?.rol === 'ADN_ADMIN' || usuario?.rol === 'COORDINADOR'
       ? [{ to: '/clientes', label: 'Clientes', icon: Building2, enabled: true }]
       : []),

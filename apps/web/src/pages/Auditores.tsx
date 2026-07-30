@@ -1,8 +1,10 @@
 import { useState, type FormEvent } from 'react';
+import { Navigate } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronDown, ChevronUp, Plus, UserPlus } from 'lucide-react';
 import type { Rol } from '@adn/shared';
 import { Layout } from '../components/Layout';
+import { useAuthStore } from '../lib/auth-store';
 import { ApiError } from '../lib/api';
 import {
   actualizarUsuario,
@@ -19,9 +21,14 @@ const ROL_LABEL: Record<Rol, string> = {
   ADN_ADMIN: 'Admin ADN',
   COORDINADOR: 'Coordinador',
   AUDITOR: 'Auditor',
+  CLIENTE: 'Cliente',
 };
 
+/** Roles con un único proyecto activo a la vez (muestran el panel de asignación). */
+const ROLES_CON_ASIGNACION: Rol[] = ['AUDITOR', 'CLIENTE'];
+
 export function Auditores() {
+  const usuario = useAuthStore((s) => s.usuario);
   const queryClient = useQueryClient();
   const [mostrarForm, setMostrarForm] = useState(false);
   const [expandido, setExpandido] = useState<string | null>(null);
@@ -34,7 +41,7 @@ export function Auditores() {
   const [nombre, setNombre] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [rol, setRol] = useState<'COORDINADOR' | 'AUDITOR'>('AUDITOR');
+  const [rol, setRol] = useState<'COORDINADOR' | 'AUDITOR' | 'CLIENTE'>('AUDITOR');
 
   const crearMutation = useMutation({
     mutationFn: () => crearUsuario({ nombre, email, password, rol }),
@@ -53,6 +60,10 @@ export function Auditores() {
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['usuarios'] }),
   });
 
+  if (usuario && usuario.rol !== 'ADN_ADMIN' && usuario.rol !== 'COORDINADOR') {
+    return <Navigate to="/auditorias" replace />;
+  }
+
   return (
     <Layout>
       <header
@@ -62,8 +73,9 @@ export function Auditores() {
           <p className="eyebrow">AU/ EQUIPO</p>
           <h1 style={{ fontSize: 24 }}>Auditores</h1>
           <p style={{ color: 'var(--adn-ink-500)', fontSize: 13, margin: '4px 0 0' }}>
-            Personal de ADN: coordinadores y auditores. Cada auditor tiene un único proyecto activo a la vez —
-            al reasignarlo a uno nuevo, se libera automáticamente el anterior.
+            Personal de ADN (coordinadores y auditores) y usuarios Cliente (portal de solo lectura para el
+            personal del cliente auditado, sin acceso a la app móvil). Auditores y Clientes tienen un único
+            proyecto activo a la vez — al reasignarlo a uno nuevo, se libera automáticamente el anterior.
           </p>
         </div>
         <button onClick={() => setMostrarForm((v) => !v)} style={primaryButtonStyle}>
@@ -118,9 +130,14 @@ export function Auditores() {
           </label>
           <label style={labelStyle}>
             Rol
-            <select value={rol} onChange={(e) => setRol(e.target.value as 'COORDINADOR' | 'AUDITOR')} style={inputStyle}>
+            <select
+              value={rol}
+              onChange={(e) => setRol(e.target.value as 'COORDINADOR' | 'AUDITOR' | 'CLIENTE')}
+              style={inputStyle}
+            >
               <option value="AUDITOR">Auditor</option>
               <option value="COORDINADOR">Coordinador</option>
+              <option value="CLIENTE">Cliente</option>
             </select>
           </label>
           <button type="submit" disabled={crearMutation.isPending} style={primaryButtonStyle}>
@@ -170,7 +187,7 @@ export function Auditores() {
                     >
                       {usuario.activo ? 'Desactivar' : 'Activar'}
                     </button>
-                    {usuario.rol === 'AUDITOR' && (
+                    {ROLES_CON_ASIGNACION.includes(usuario.rol) && (
                       <button
                         onClick={() => setExpandido((e) => (e === usuario.id ? null : usuario.id))}
                         style={linkButtonStyle}

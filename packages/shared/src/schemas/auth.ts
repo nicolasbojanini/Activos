@@ -37,7 +37,7 @@ export const crearUsuarioSchema = z.object({
   nombre: z.string().min(1, 'El nombre es obligatorio'),
   email: z.string().email(),
   password: z.string().min(8, 'Mínimo 8 caracteres'),
-  rol: z.enum([Rol.COORDINADOR, Rol.AUDITOR]),
+  rol: z.enum([Rol.COORDINADOR, Rol.AUDITOR, Rol.CLIENTE]),
 });
 
 export type CrearUsuarioInput = z.infer<typeof crearUsuarioSchema>;

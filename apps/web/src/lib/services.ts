@@ -19,6 +19,7 @@ import type {
   ImportCommitInput,
   ImportCommitOutput,
   ImportPreviewOutput,
+  MiAsignacionOutput,
   PaginatedOutput,
   ActivoListItemOutput,
   ProyectoOutput,
@@ -128,6 +129,11 @@ export function actualizarCampoUbicacion(
 
 export function getUsuarios() {
   return apiFetch<UsuarioOutput[]>('/usuarios');
+}
+
+/** Para el rol CLIENTE: su única asignación (clienteId+proyectoId), o null si todavía no le asignaron ninguna. */
+export function getMiAsignacion() {
+  return apiFetch<MiAsignacionOutput>('/usuarios/me/asignacion');
 }
 
 export function crearUsuario(dto: CrearUsuarioInput) {

@@ -66,7 +66,7 @@ export class UsuariosController {
   }
 
   @Get('me/asignacion')
-  @Roles(Rol.ADN_ADMIN, Rol.COORDINADOR, Rol.AUDITOR)
+  @Roles(Rol.ADN_ADMIN, Rol.COORDINADOR, Rol.AUDITOR, Rol.CLIENTE)
   @ApiOperation({
     summary:
       'Asignación actual del usuario autenticado (o null si no tiene ninguna)',
