@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from 'react-router';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { ClienteGate } from './components/ClienteGate';
 import { Login } from './pages/Login';
+import { Dashboard } from './pages/Dashboard';
 import { Auditorias } from './pages/Auditorias';
 import { Importar } from './pages/Importar';
 import { ActivoDetalle } from './pages/ActivoDetalle';
@@ -15,6 +16,7 @@ function App() {
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route element={<ProtectedRoute />}>
+        <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/auditores" element={<Auditores />} />
         <Route path="/clientes" element={<Clientes />} />
         <Route path="/clientes/:clienteId/campos" element={<ConfigurarCampos />} />

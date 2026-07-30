@@ -22,6 +22,7 @@ import type {
   MiAsignacionOutput,
   PaginatedOutput,
   ActivoListItemOutput,
+  ProyectoGerencialOutput,
   ProyectoOutput,
   RegistroHistorialOutput,
   ResumenProyectoOutput,
@@ -134,6 +135,11 @@ export function getUsuarios() {
 /** Para el rol CLIENTE: su única asignación (clienteId+proyectoId), o null si todavía no le asignaron ninguna. */
 export function getMiAsignacion() {
   return apiFetch<MiAsignacionOutput>('/usuarios/me/asignacion');
+}
+
+/** Solo ADN_ADMIN: todos los proyectos en curso de todos los clientes, con avance y rendimiento por auditor. */
+export function getDashboardGerencial() {
+  return apiFetch<ProyectoGerencialOutput[]>('/dashboard/proyectos');
 }
 
 export function crearUsuario(dto: CrearUsuarioInput) {

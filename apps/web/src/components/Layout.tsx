@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { NavLink, useNavigate } from 'react-router';
-import { ClipboardList, Package, FileBarChart, Users, Building2, LogOut } from 'lucide-react';
+import { ClipboardList, Package, FileBarChart, Users, Building2, LayoutDashboard, LogOut } from 'lucide-react';
 import { useAuthStore } from '../lib/auth-store';
 import { useClienteStore } from '../lib/cliente-store';
 import logoAdnWhite from '../assets/logo-adn-white.png';
@@ -26,8 +26,12 @@ export function Layout({ children }: { children: ReactNode }) {
 
   // El rol Cliente es estrictamente de solo lectura sobre Auditorías/Reportes
   // — sin "Auditores" (gestión de personal de ADN) ni "Clientes" (que ya
-  // estaba limitado a ADN_ADMIN/COORDINADOR).
+  // estaba limitado a ADN_ADMIN/COORDINADOR). El panel gerencial, por ahora,
+  // es exclusivo de ADN_ADMIN.
   const items = [
+    ...(usuario?.rol === 'ADN_ADMIN'
+      ? [{ to: '/dashboard', label: 'Panel gerencial', icon: LayoutDashboard, enabled: true }]
+      : []),
     ...navItemsBase,
     ...(usuario?.rol === 'CLIENTE' ? [] : [{ to: '/auditores', label: 'Auditores', icon: Users, enabled: true }]),
     ...(usuario?.rol === 'ADN_ADMIN' || usuario?.rol === 'COORDINADOR'

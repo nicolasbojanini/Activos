@@ -91,3 +91,29 @@ export interface RegistroHistorialOutput {
   auditor: string;
   fotos: FotoOutput[];
 }
+
+/**
+ * Rendimiento de un auditor en un proyecto: registros procesados dividido
+ * entre días con al menos un registro (no días de calendario desde que se
+ * asignó) — así no se penaliza a un auditor por días en los que no auditó.
+ * `promedioPorDia` es 0 (no null) cuando `diasActivos` es 0.
+ */
+export interface AuditorRendimientoOutput {
+  auditorId: string;
+  auditorNombre: string;
+  registros: number;
+  diasActivos: number;
+  promedioPorDia: number;
+}
+
+/** Fila del dashboard gerencial: un proyecto en curso (cerrado: false) de un cliente. */
+export interface ProyectoGerencialOutput {
+  clienteId: string;
+  clienteNombre: string;
+  proyectoId: string;
+  proyectoNombre: string;
+  fechaCorte: string;
+  resumen: ResumenProyectoOutput;
+  auditoresAsignados: number;
+  auditores: AuditorRendimientoOutput[];
+}

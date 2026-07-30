@@ -9,6 +9,7 @@ import { ActivosModule } from './activos/activos.module';
 import { AuthModule } from './auth/auth.module';
 import { ClientesModule } from './clientes/clientes.module';
 import { ConfiguracionCamposModule } from './configuracion-campos/configuracion-campos.module';
+import { DashboardModule } from './dashboard/dashboard.module';
 import { ImportsModule } from './imports/imports.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { ProyectosModule } from './proyectos/proyectos.module';
@@ -26,6 +27,7 @@ import { UsuariosModule } from './usuarios/usuarios.module';
     AuthModule,
     ClientesModule,
     ConfiguracionCamposModule,
+    DashboardModule,
     UsuariosModule,
     ProyectosModule,
     ActivosModule,
