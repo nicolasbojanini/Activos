@@ -116,4 +116,12 @@ export interface ProyectoGerencialOutput {
   resumen: ResumenProyectoOutput;
   auditoresAsignados: number;
   auditores: AuditorRendimientoOutput[];
+  /**
+   * Rendimiento del equipo completo tratado como un solo auditor: total de
+   * registros de todos los auditores asignados ÷ días distintos en que
+   * CUALQUIERA de ellos trabajó (no la suma de sus días activos — un día en
+   * que coincidieron dos auditores cuenta una sola vez). Es un promedio
+   * ponderado, no el promedio de los `promedioPorDia` individuales.
+   */
+  promedioEquipoPorDia: number;
 }

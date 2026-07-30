@@ -84,7 +84,7 @@ export function Dashboard() {
             <div
               style={{
                 display: 'grid',
-                gridTemplateColumns: '1.5fr 1fr 100px 140px 32px',
+                gridTemplateColumns: '1.5fr 1fr 100px 140px 160px 32px',
                 padding: '10px 20px',
                 fontSize: 11,
                 fontWeight: 600,
@@ -98,6 +98,7 @@ export function Dashboard() {
               <span>Cliente</span>
               <span>Avance</span>
               <span>Auditores asignados</span>
+              <span>Rendimiento equipo/día</span>
               <span />
             </div>
             {proyectos.map((p) => (
@@ -152,6 +153,7 @@ function ProyectoRow({
         <span style={{ color: 'var(--adn-ink-500)' }}>{proyecto.clienteNombre}</span>
         <span style={{ fontWeight: 600, color: 'var(--adn-blue)' }}>{Math.round(proyecto.resumen.pct * 100)}%</span>
         <span>{proyecto.auditoresAsignados}</span>
+        <span style={{ fontWeight: 600 }}>{proyecto.promedioEquipoPorDia} registros/día</span>
         {expandido ? <ChevronUp size={16} strokeWidth={1.8} /> : <ChevronDown size={16} strokeWidth={1.8} />}
       </div>
 
@@ -184,8 +186,10 @@ function ProyectoRow({
             </table>
           )}
           <p style={{ fontSize: 11, color: 'var(--adn-ink-400)', margin: '10px 0 0' }}>
-            Promedio por día = registros procesados ÷ días con al menos un registro (no días de calendario desde la
-            asignación).
+            Promedio por día (de cada auditor) = sus registros procesados ÷ sus días con al menos un registro. El
+            "Rendimiento equipo/día" de la fila comprimida no es el promedio de estos valores — es el equipo entero
+            tratado como un solo auditor: total de registros de todos ÷ días distintos en que cualquiera del equipo
+            trabajó (un día en que coincidieron dos auditores cuenta una sola vez).
           </p>
         </div>
       )}
