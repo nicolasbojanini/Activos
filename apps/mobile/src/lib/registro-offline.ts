@@ -3,6 +3,7 @@ import { uploadAsync } from 'expo-file-system/legacy';
 import type { RegistroAuditoriaInput } from '@adn/shared';
 import { db } from '../db/client';
 import { activosLocal, colaRegistros } from '../db/schema';
+import { aplicarCambiosAlEspejoLocal } from '../db/sync';
 import { crearRegistro, confirmarFotosRegistro } from './services';
 import { archivoLocalFoto, eliminarFotoLocal, type FotoCapturada } from './fotos';
 
@@ -39,6 +40,15 @@ export async function encolarRegistro(input: EncolarInput): Promise<void> {
     synced: 0,
     createdAt: new Date().toISOString(),
   });
+
+  // El espejo local refleja de una vez lo capturado (misma regla que aplica
+  // el backend al sincronizar), así la ficha y las sugerencias dinámicas ven
+  // el valor nuevo sin esperar el viaje de ida y vuelta al servidor. Para un
+  // NO_REGISTRADO todavía no hay fila local que actualizar: el activo se crea
+  // en el servidor y llega en el siguiente delta.
+  if (input.activoId && input.cambios) {
+    await aplicarCambiosAlEspejoLocal(input.activoId, input.cambios);
+  }
 
   void intentarSincronizar(input.clientId, input);
 }

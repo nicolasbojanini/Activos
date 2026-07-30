@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import * as XLSX from 'xlsx';
 import PDFDocument from 'pdfkit';
 import { Archiver, ZipArchive } from 'archiver';
@@ -145,6 +145,8 @@ function filaAMayusculas<T extends Record<string, string>>(fila: T): T {
 
 @Injectable()
 export class ReportesService {
+  private readonly logger = new Logger(ReportesService.name);
+
   constructor(
     private readonly control: ControlPrismaService,
     private readonly proyectosService: ProyectosService,
@@ -249,25 +251,36 @@ export class ReportesService {
     }
 
     const archive = new ZipArchive({ zlib: { level: 9 } });
+
+    // La lista plana (registro, foto) en orden define el consecutivo de cada
+    // nombre de archivo — se calcula ANTES de bajar nada, así el nombre no
+    // depende del orden en que terminen las descargas concurrentes.
     // Contador por activo (no por registro): con el filtro de fechas, un
     // mismo activo puede aportar fotos de varios registros al ZIP — sin
     // fecha en el nombre, este consecutivo es lo único que evita que un
     // archivo pise a otro.
     const consecutivoPorActivo = new Map<string, number>();
-
+    const entradas: { s3Key: string; nombre: string }[] = [];
     for (const registro of registros) {
-      const fotosDelRegistro = fotosPorRegistro.get(registro.id) ?? [];
-      for (const foto of fotosDelRegistro) {
-        const bytes = await this.s3.descargarObjeto(foto.s3Key);
+      for (const foto of fotosPorRegistro.get(registro.id) ?? []) {
         const consecutivo =
           (consecutivoPorActivo.get(registro.codigoAnterior) ?? 0) + 1;
         consecutivoPorActivo.set(registro.codigoAnterior, consecutivo);
-        const nombre = `${registro.codigoAnterior}-${consecutivo}.jpg`;
-        archive.append(bytes, { name: nombre });
+        entradas.push({
+          s3Key: foto.s3Key,
+          nombre: `${registro.codigoAnterior}-${consecutivo}.jpg`,
+        });
       }
     }
 
-    void archive.finalize();
+    // El llenado NO se espera acá: el controller necesita el archive para
+    // empezar a mandar bytes al cliente, y solo cuando alguien consume el
+    // stream archiver aplica backpressure. Esperar a terminar antes de
+    // devolverlo hacía que el ZIP completo se acumulara en memoria (medido:
+    // +110 MB reteniendo 391 MB de fotos comprimibles; con JPEG reales, que
+    // no comprimen, se acerca al peso total de las fotos) y que el navegador
+    // no recibiera nada hasta que la última foto estuviera lista.
+    void this.llenarZipFotos(archive, entradas);
 
     const nombreArchivo = proyecto.nombre
       .replace(/[^a-z0-9]+/gi, '-')
@@ -276,6 +289,41 @@ export class ReportesService {
       ? `-${(rango?.desde ?? 'inicio').slice(0, 10)}_a_${(rango?.hasta ?? 'hoy').slice(0, 10)}`
       : '';
     return { archive, filename: `fotos-${nombreArchivo}${sufijoRango}.zip` };
+  }
+
+  /**
+   * Baja las fotos de S3 en lotes concurrentes y las va agregando al ZIP en
+   * el orden de `entradas` (el que fija los nombres). Antes se bajaban una
+   * por una: con 2.000 fotos y ~40 ms de latencia por objeto eso son ~80
+   * segundos de puras esperas de red, contra ~10 con 8 en vuelo a la vez.
+   *
+   * Se agrega lote por lote, no todo de golpe, para que el ritmo lo marque
+   * el consumidor del stream (la respuesta HTTP) y no se acumule el ZIP
+   * entero en memoria.
+   */
+  private async llenarZipFotos(
+    archive: Archiver,
+    entradas: { s3Key: string; nombre: string }[],
+  ): Promise<void> {
+    const CONCURRENCIA = 8;
+    try {
+      for (let i = 0; i < entradas.length; i += CONCURRENCIA) {
+        const lote = entradas.slice(i, i + CONCURRENCIA);
+        const bytes = await Promise.all(
+          lote.map((e) => this.s3.descargarObjeto(e.s3Key)),
+        );
+        lote.forEach((entrada, j) =>
+          archive.append(bytes[j], { name: entrada.nombre }),
+        );
+      }
+      await archive.finalize();
+    } catch (err) {
+      // Sin esto, una foto que no se puede bajar dejaba el ZIP sin finalizar
+      // y la descarga colgada para siempre. abort() corta el stream: el
+      // navegador ve una descarga interrumpida, que es recuperable.
+      this.logger.error(`No se pudo completar el ZIP de fotos: ${String(err)}`);
+      archive.abort();
+    }
   }
 
   async generar(

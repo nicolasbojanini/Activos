@@ -58,9 +58,19 @@ export function EscaneoScreen({ navigation }: Props) {
     setError(null);
 
     // Offline-first: primero se busca en el espejo local descargado al iniciar sesión.
-    const local = await buscarActivoLocalPorCodigo(codigo);
-    if (local) {
-      navigation.replace('Detalle', { activoId: local.id, escaneado: true });
+    // Si la consulta local falla (base corrupta, espejo a medio escribir), se
+    // libera el escáner: sin este catch la promesa quedaba rechazada sin
+    // manejar, `locked` no volvía nunca a false y la cámara dejaba de leer
+    // hasta salir y volver a entrar a la pantalla.
+    try {
+      const local = await buscarActivoLocalPorCodigo(codigo);
+      if (local) {
+        navigation.replace('Detalle', { activoId: local.id, escaneado: true });
+        return;
+      }
+    } catch {
+      setError('No se pudo leer el inventario local. Intenta de nuevo.');
+      setLocked(false);
       return;
     }
 

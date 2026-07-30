@@ -37,6 +37,7 @@ import {
 } from '../db/sync';
 import { sincronizarPendientes } from '../lib/registro-offline';
 import { useConectividad } from '../lib/useConectividad';
+import { CLAVE_SUGERENCIAS } from '../lib/useSugerencias';
 import type { RootStackParamList } from '../navigation/types';
 
 const logoWhite = require('../../assets/adn-logo-white.png');
@@ -107,6 +108,9 @@ export function InicioScreen({ navigation }: Props) {
     void queryClient.invalidateQueries({ queryKey: ['resumen-local'] });
     void queryClient.invalidateQueries({ queryKey: ['activos-local'] });
     void queryClient.invalidateQueries({ queryKey: ['pendientes-sync'] });
+    // El espejo cambió: las sugerencias dinámicas se recalculan (se cachean
+    // indefinidamente justo porque solo dependen del espejo).
+    void queryClient.invalidateQueries({ queryKey: [CLAVE_SUGERENCIAS] });
   };
 
   const ejecutarSincronizacion = async () => {
@@ -179,6 +183,7 @@ export function InicioScreen({ navigation }: Props) {
         void queryClient.invalidateQueries({ queryKey: ['resumen-local'] });
         void queryClient.invalidateQueries({ queryKey: ['activos-local'] });
         void queryClient.invalidateQueries({ queryKey: ['pendientes-sync'] });
+        void queryClient.invalidateQueries({ queryKey: [CLAVE_SUGERENCIAS] });
       } catch (err) {
         if (!habiaSesion) {
           setErrorSesion(err instanceof Error ? err.message : String(err));

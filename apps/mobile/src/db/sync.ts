@@ -381,6 +381,106 @@ export async function contarPendientesSync(): Promise<number> {
   return fila?.n ?? 0;
 }
 
+/**
+ * Campos de texto del catálogo que existen como columna propia en el espejo
+ * local — sus claves coinciden con las del objeto `cambios` que arma la app.
+ */
+const CAMPOS_TEXTO_ESPEJO = [
+  'codigoNuevo',
+  'codigoControl',
+  'nombre',
+  'descripcion',
+  'color',
+  'medidas',
+  'capacidad',
+  'marca',
+  'modelo',
+  'serie',
+  'responsable',
+  'centroCosto',
+  'proveedor',
+] as const;
+
+const PREFIJO_PERSONALIZADO = 'personalizado:';
+const PREFIJO_UBICACION = 'ubicacionCampo:';
+
+function mezclarJson(actual: string | null, nuevos: Record<string, string>): string {
+  const previo = actual ? (JSON.parse(actual) as Record<string, string>) : {};
+  return JSON.stringify({ ...previo, ...nuevos });
+}
+
+/**
+ * Aplica al espejo local los valores que el auditor acaba de capturar, con la
+ * misma regla "última escritura gana" que usa el backend en
+ * aplicarCambiosAActivo(). Se llama al ENCOLAR (no al sincronizar) para que
+ * funcione igual sin señal.
+ *
+ * Sin esto, lo único que se escribía localmente al guardar una auditoría era
+ * `estadoServidor`: la ficha seguía mostrando los valores viejos y —lo que
+ * más molesta— las sugerencias dinámicas no veían nada de lo recién escrito
+ * hasta que el registro subiera al servidor Y volviera en un delta. El
+ * auditor escribía "Negro" en un activo y en el siguiente no le aparecía
+ * como sugerencia, que es justo lo que la función busca evitar.
+ */
+export async function aplicarCambiosAlEspejoLocal(
+  activoId: string,
+  cambios: Record<string, { antes?: unknown; despues?: unknown }>,
+): Promise<void> {
+  const set: Partial<typeof activosLocal.$inferInsert> = {};
+  const personalizados: Record<string, string> = {};
+  const ubicacionExtra: Record<string, string> = {};
+
+  const texto = (valor: unknown) => (valor == null ? null : String(valor));
+
+  for (const [campo, diff] of Object.entries(cambios)) {
+    const despues = diff?.despues;
+
+    if (campo.startsWith(PREFIJO_PERSONALIZADO)) {
+      personalizados[campo.slice(PREFIJO_PERSONALIZADO.length)] = texto(despues) ?? '';
+    } else if (campo.startsWith(PREFIJO_UBICACION)) {
+      ubicacionExtra[campo.slice(PREFIJO_UBICACION.length)] = texto(despues) ?? '';
+    } else if (campo === 'ubicacionNombre') {
+      set.ubicacionSede = texto(despues);
+    } else if (campo === 'codigoNuevo') {
+      // Nunca null: en instalaciones viejas la columna sigue siendo NOT NULL (ver aFilaLocal).
+      set.codigoNuevo = texto(despues) ?? '';
+    } else if ((CAMPOS_TEXTO_ESPEJO as readonly string[]).includes(campo)) {
+      // `nombre` es NOT NULL en el espejo: solo se pisa si trae valor.
+      if (campo === 'nombre') {
+        if (despues != null && String(despues) !== '') set.nombre = String(despues);
+      } else {
+        set[campo as 'color'] = texto(despues);
+      }
+    } else if (campo === 'estadoFisico' && despues) {
+      set.estadoFisico = String(despues);
+    } else if (campo === 'categoria' && despues) {
+      set.categoria = String(despues);
+    }
+  }
+
+  const hayJson = Object.keys(personalizados).length > 0 || Object.keys(ubicacionExtra).length > 0;
+  if (Object.keys(set).length === 0 && !hayJson) return;
+
+  if (hayJson) {
+    const [fila] = await db
+      .select({
+        camposPersonalizadosJson: activosLocal.camposPersonalizadosJson,
+        camposUbicacionJson: activosLocal.camposUbicacionJson,
+      })
+      .from(activosLocal)
+      .where(eq(activosLocal.id, activoId));
+    if (!fila) return;
+    if (Object.keys(personalizados).length > 0) {
+      set.camposPersonalizadosJson = mezclarJson(fila.camposPersonalizadosJson, personalizados);
+    }
+    if (Object.keys(ubicacionExtra).length > 0) {
+      set.camposUbicacionJson = mezclarJson(fila.camposUbicacionJson, ubicacionExtra);
+    }
+  }
+
+  await db.update(activosLocal).set(set).where(eq(activosLocal.id, activoId));
+}
+
 /** Columnas estándar de texto libre elegibles para sugerencias — debe coincidir con campos-catalogo.ts (permiteSugerencias). */
 const COLUMNA_SUGERENCIA_POR_CAMPO = {
   nombre: activosLocal.nombre,

@@ -130,6 +130,12 @@ model RegistroAuditoria {
   // Soporta el DISTINCT ON (activoId) ... ORDER BY activoId, auditadoEn DESC
   // de ultimoRegistroPorActivo() sin un sort completo de la tabla.
   @@index([proyectoId, activoId, auditadoEn(sort: Desc)])
+  // Las consultas por UN activo (findOne, buscarPorCodigo al escanear,
+  // historial) no filtran por proyectoId, así que no pueden aprovechar el
+  // índice de arriba (su columna guía es proyectoId) y Postgres terminaba
+  // recorriendo el índice entero. Medido con 100k registros: 21 ms contra
+  // 0,32 ms con este índice.
+  @@index([activoId, auditadoEn(sort: Desc)])
 }
 
 model Foto {

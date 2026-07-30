@@ -6,6 +6,12 @@ import { useConfiguracionCampos } from './useConfiguracionCampos';
 const PREFIJO_CAMPO_PERSONALIZADO = 'personalizado:';
 
 /**
+ * Prefijo de la queryKey. Invalidar con esto (no con la key completa) alcanza
+ * para cualquier combinación de campos activados.
+ */
+export const CLAVE_SUGERENCIAS = 'sugerencias-campos';
+
+/**
  * Un solo mapa {clave: valores[]} con las sugerencias de todos los campos que
  * el coordinador activó (estándar y personalizados), calculado contra el
  * espejo local del proyecto — nunca contra la red, así funciona offline
@@ -23,7 +29,16 @@ export function useSugerencias(): Record<string, string[]> {
     // Si el coordinador activa/desactiva un campo, la key cambia y React
     // Query lo trata como una consulta nueva en vez de servir un caché que
     // no tendría ese campo calculado.
-    queryKey: ['sugerencias-campos', camposConSugerencias, personalizadosConSugerencias],
+    queryKey: [CLAVE_SUGERENCIAS, camposConSugerencias, personalizadosConSugerencias],
+    // Cada campo activado cuesta un recorrido completo del espejo (GROUP BY
+    // sobre una columna sin índice): con 7 campos y 100k activos son ~370 ms
+    // en un equipo de escritorio, bastante más en los teléfonos de campo. Y
+    // esta pantalla se abre UNA VEZ POR ACTIVO, así que recalcular por cada
+    // apertura era exactamente el "lento por cada activo" que hay que evitar.
+    // El espejo solo cambia al sincronizar o al guardar una captura, así que
+    // el resultado vive hasta que alguien invalide CLAVE_SUGERENCIAS (ver
+    // invalidarLocal en InicioScreen y el guardado de cada pantalla).
+    staleTime: Infinity,
     queryFn: async () => {
       const mapa: Record<string, string[]> = {};
       await Promise.all([

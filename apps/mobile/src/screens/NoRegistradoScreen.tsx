@@ -10,7 +10,7 @@ import { encolarRegistro } from '../lib/registro-offline';
 import { CLAVE_UBICACION_BASE, useUbicacionActivaStore } from '../lib/ubicacion-activa-store';
 import { useConfiguracionCampos } from '../lib/useConfiguracionCampos';
 import { useProyectoActual } from '../lib/useProyectoActual';
-import { useSugerencias } from '../lib/useSugerencias';
+import { CLAVE_SUGERENCIAS, useSugerencias } from '../lib/useSugerencias';
 import { CampoTextoConSugerencias } from '../components/CampoTextoConSugerencias';
 import { capturarFoto, eliminarFotoLocal, type FotoCapturada } from '../lib/fotos';
 import { HeaderBar } from '../components/HeaderBar';
@@ -175,6 +175,7 @@ export function NoRegistradoScreen({ route, navigation }: Props) {
       void queryClient.invalidateQueries({ queryKey: ['resumen-local'] });
       void queryClient.invalidateQueries({ queryKey: ['activos-local'] });
       void queryClient.invalidateQueries({ queryKey: ['pendientes-sync'] });
+      void queryClient.invalidateQueries({ queryKey: [CLAVE_SUGERENCIAS] });
       navigation.replace('Confirmacion', {
         resultado: 'NO_REGISTRADO',
         titulo: 'Activo nuevo registrado',

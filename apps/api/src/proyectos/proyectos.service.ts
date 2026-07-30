@@ -106,6 +106,37 @@ export class ProyectosService {
     return ultimoPorActivo;
   }
 
+  /**
+   * Conteo por estado del "último registro por activo", agregado en Postgres.
+   *
+   * Es el mismo DISTINCT ON de ultimoRegistroPorActivo(), pero devolviendo
+   * solo `estado` + `count(*)` en vez de una fila por activo: el resumen
+   * únicamente cuenta estados, así que traer id/cambios/nota/auditadoEn de
+   * cada registro era transferir y parsear el historial entero para tirarlo.
+   * Medido con 100k activos: 744 ms y ~111 MB de heap por proyecto contra
+   * 366 ms y memoria constante. El dashboard gerencial lo multiplica por
+   * cada proyecto de cada cliente (todos en paralelo), así que ahí la
+   * diferencia era de cientos de MB vivos a la vez.
+   */
+  private async conteoPorEstado(
+    tenantPrisma: TenantPrismaClient,
+    proyectoId: string,
+  ): Promise<Map<EstadoAuditoriaDb, number>> {
+    const filas = await tenantPrisma.$queryRaw<
+      { estado: EstadoAuditoriaDb; n: number }[]
+    >`
+      SELECT estado, count(*)::int AS n
+      FROM (
+        SELECT DISTINCT ON ("activoId") "activoId", estado
+        FROM "RegistroAuditoria"
+        WHERE "proyectoId" = ${proyectoId} AND "activoId" IS NOT NULL
+        ORDER BY "activoId", "auditadoEn" DESC, id DESC
+      ) ultimo
+      GROUP BY estado
+    `;
+    return new Map(filas.map((f) => [f.estado, f.n]));
+  }
+
   async resumen(
     tenantPrisma: TenantPrismaClient,
     id: string,
@@ -114,9 +145,9 @@ export class ProyectosService {
 
     // El conteo directo sobre RegistroAuditoria(activoId: null) cubre hallazgos
     // huérfanos de antes de este cambio; los nuevos NO_REGISTRADO ya quedan
-    // ligados a un Activo real y se cuentan abajo vía ultimoPorActivo.
-    const [totalActivos, noRegistradosHuerfanos, ultimoPorActivo] =
-      await Promise.all([
+    // ligados a un Activo real y se cuentan abajo vía conteoPorEstado.
+    const [totalActivos, noRegistradosHuerfanos, porEstado] = await Promise.all(
+      [
         tenantPrisma.activo.count({ where: { deletedAt: null } }),
         tenantPrisma.registroAuditoria.count({
           where: {
@@ -125,21 +156,21 @@ export class ProyectosService {
             estado: 'NO_REGISTRADO',
           },
         }),
-        this.ultimoRegistroPorActivo(tenantPrisma, proyecto.id),
-      ]);
+        this.conteoPorEstado(tenantPrisma, proyecto.id),
+      ],
+    );
 
-    let auditados = 0;
-    let diferencias = 0;
-    let faltantes = 0;
-    let noRegistrados = noRegistradosHuerfanos;
-    for (const registro of ultimoPorActivo.values()) {
-      if (registro.estado === 'AUDITADO') auditados++;
-      else if (registro.estado === 'DIFERENCIA') diferencias++;
-      else if (registro.estado === 'FALTANTE') faltantes++;
-      else if (registro.estado === 'NO_REGISTRADO') noRegistrados++;
-    }
+    const auditados = porEstado.get('AUDITADO') ?? 0;
+    const diferencias = porEstado.get('DIFERENCIA') ?? 0;
+    const faltantes = porEstado.get('FALTANTE') ?? 0;
+    const noRegistrados =
+      noRegistradosHuerfanos + (porEstado.get('NO_REGISTRADO') ?? 0);
 
-    const pendientes = totalActivos - ultimoPorActivo.size;
+    // Activos con al menos un registro en este proyecto — equivalente al
+    // `size` del mapa que se materializaba antes.
+    const conActividad = [...porEstado.values()].reduce((a, b) => a + b, 0);
+
+    const pendientes = totalActivos - conActividad;
     const pct =
       totalActivos > 0 ? (totalActivos - pendientes) / totalActivos : 0;
 

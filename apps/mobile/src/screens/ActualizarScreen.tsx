@@ -14,7 +14,7 @@ import { useProyectoActual } from '../lib/useProyectoActual';
 import { useConfiguracionCampos } from '../lib/useConfiguracionCampos';
 import { encolarRegistro } from '../lib/registro-offline';
 import { esSoloLetras } from '../lib/validacion-texto';
-import { useSugerencias } from '../lib/useSugerencias';
+import { CLAVE_SUGERENCIAS, useSugerencias } from '../lib/useSugerencias';
 import { CampoTextoConSugerencias } from '../components/CampoTextoConSugerencias';
 import { calcularReubicacionAutomatica } from '../lib/ubicacion-relocate';
 import { CLAVE_UBICACION_BASE, useUbicacionActivaStore } from '../lib/ubicacion-activa-store';
@@ -324,6 +324,9 @@ export function ActualizarScreen({ route, navigation }: Props) {
       void queryClient.invalidateQueries({ queryKey: ['activos-local'] });
       void queryClient.invalidateQueries({ queryKey: ['activo-local', activoId] });
       void queryClient.invalidateQueries({ queryKey: ['pendientes-sync'] });
+      // Lo recién escrito ya está en el espejo (ver encolarRegistro): que
+      // alimente las sugerencias del próximo activo.
+      void queryClient.invalidateQueries({ queryKey: [CLAVE_SUGERENCIAS] });
       navigation.replace('Confirmacion', {
         resultado: estado,
         titulo: hayDiferencias ? 'Diferencia registrada' : 'Activo confirmado',
