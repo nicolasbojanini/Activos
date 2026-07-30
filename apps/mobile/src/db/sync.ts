@@ -1,4 +1,5 @@
 import { eq, and, or, asc, inArray, sql } from 'drizzle-orm';
+import type { AnySQLiteColumn } from 'drizzle-orm/sqlite-core';
 import type {
   ActivoSesionOutput,
   CampoPersonalizadoOutput,
@@ -378,4 +379,66 @@ export async function contarPendientesSync(): Promise<number> {
     .from(colaRegistros)
     .where(eq(colaRegistros.synced, 0));
   return fila?.n ?? 0;
+}
+
+/** Columnas estándar de texto libre elegibles para sugerencias — debe coincidir con campos-catalogo.ts (permiteSugerencias). */
+const COLUMNA_SUGERENCIA_POR_CAMPO = {
+  nombre: activosLocal.nombre,
+  descripcion: activosLocal.descripcion,
+  color: activosLocal.color,
+  medidas: activosLocal.medidas,
+  capacidad: activosLocal.capacidad,
+  marca: activosLocal.marca,
+  modelo: activosLocal.modelo,
+  serie: activosLocal.serie,
+  responsable: activosLocal.responsable,
+  centroCosto: activosLocal.centroCosto,
+  proveedor: activosLocal.proveedor,
+} as const;
+
+const LIMITE_SUGERENCIAS = 50;
+
+/**
+ * Valores distintos que ya existen en el espejo local para un campo estándar
+ * de la ficha, de más a menos frecuentes — "lo que el equipo ya escribió en
+ * este proyecto" (todo el mirror es de un solo proyecto a la vez). Se agrupa
+ * por `lower(trim(valor))` para no separar "Negro" de "negro ", pero se
+ * expone el valor tal cual quedó escrito la primera vez que apareció ese
+ * grupo — así el auditor ve una sola sugerencia por variante, no una por
+ * cada combinación exacta de mayúsculas/espacios.
+ */
+export async function obtenerSugerenciasCampo(campo: string): Promise<string[]> {
+  const columna = (COLUMNA_SUGERENCIA_POR_CAMPO as Record<string, AnySQLiteColumn | undefined>)[campo];
+  if (!columna) return [];
+
+  const filas = await db
+    .select({ valor: columna, n: sql<number>`count(*)` })
+    .from(activosLocal)
+    .where(sql`${columna} is not null and trim(${columna}) <> ''`)
+    .groupBy(sql`lower(trim(${columna}))`)
+    .orderBy(sql`count(*) desc`)
+    .limit(LIMITE_SUGERENCIAS);
+
+  return filas.map((f) => f.valor as string);
+}
+
+/**
+ * Igual que obtenerSugerenciasCampo, pero para un campo personalizado
+ * (Activo.camposPersonalizados, guardado como JSON en camposPersonalizadosJson).
+ * `campoPersonalizadoId` va como parámetro ligado del `sql` tag (json_extract(col, ?)),
+ * nunca concatenado al texto de la query.
+ */
+export async function obtenerSugerenciasCampoPersonalizado(campoPersonalizadoId: string): Promise<string[]> {
+  const ruta = `$.${campoPersonalizadoId}`;
+  const valorJson = sql<string>`json_extract(${activosLocal.camposPersonalizadosJson}, ${ruta})`;
+
+  const filas = await db
+    .select({ valor: valorJson, n: sql<number>`count(*)` })
+    .from(activosLocal)
+    .where(sql`${valorJson} is not null and trim(${valorJson}) <> ''`)
+    .groupBy(sql`lower(trim(${valorJson}))`)
+    .orderBy(sql`count(*) desc`)
+    .limit(LIMITE_SUGERENCIAS);
+
+  return filas.map((f) => f.valor as string);
 }

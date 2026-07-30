@@ -10,6 +10,8 @@ import { encolarRegistro } from '../lib/registro-offline';
 import { CLAVE_UBICACION_BASE, useUbicacionActivaStore } from '../lib/ubicacion-activa-store';
 import { useConfiguracionCampos } from '../lib/useConfiguracionCampos';
 import { useProyectoActual } from '../lib/useProyectoActual';
+import { useSugerencias } from '../lib/useSugerencias';
+import { CampoTextoConSugerencias } from '../components/CampoTextoConSugerencias';
 import { capturarFoto, eliminarFotoLocal, type FotoCapturada } from '../lib/fotos';
 import { HeaderBar } from '../components/HeaderBar';
 import { PrimaryButton } from '../components/PrimaryButton';
@@ -65,6 +67,7 @@ export function NoRegistradoScreen({ route, navigation }: Props) {
   const { codigo } = route.params;
   const { proyecto } = useProyectoActual();
   const { campos, camposPersonalizados, fotoObligatoria } = useConfiguracionCampos();
+  const mapaSugerencias = useSugerencias();
   const ubicacionActiva = useUbicacionActivaStore((s) => s.ubicacionActiva);
   const [enviando, setEnviando] = useState(false);
   const [fotos, setFotos] = useState<FotoCapturada[]>([]);
@@ -199,7 +202,13 @@ export function NoRegistradoScreen({ route, navigation }: Props) {
           Nombre / descripción
           <Text style={{ color: colors.state.danger }}> *</Text>
         </Text>
-        <TextInput value={nombre} onChangeText={setNombre} style={styles.input} placeholder="Ej. Silla de oficina" />
+        <CampoTextoConSugerencias
+          valor={nombre}
+          onChangeTexto={setNombre}
+          placeholder="Ej. Silla de oficina"
+          soloLetrasActivo
+          sugerencias={mapaSugerencias.nombre}
+        />
 
         <Text style={styles.sectionLabel}>
           Categoría
@@ -284,12 +293,12 @@ export function NoRegistradoScreen({ route, navigation }: Props) {
               {c.etiqueta}
               {c.requerido && <Text style={{ color: colors.state.danger }}> *</Text>}
             </Text>
-            <TextInput
-              value={valoresExtra[c.campo] ?? ''}
-              onChangeText={(texto) => setValoresExtra((v) => ({ ...v, [c.campo]: texto }))}
-              style={styles.input}
+            <CampoTextoConSugerencias
+              valor={valoresExtra[c.campo] ?? ''}
+              onChangeTexto={(texto) => setValoresExtra((v) => ({ ...v, [c.campo]: texto }))}
               keyboardType={c.tipo === 'number' ? 'numeric' : 'default'}
               placeholder={c.etiqueta}
+              sugerencias={mapaSugerencias[c.campo]}
             />
           </View>
         ))}
@@ -302,11 +311,11 @@ export function NoRegistradoScreen({ route, navigation }: Props) {
                 {cp.etiqueta}
                 {cp.requerido && <Text style={{ color: colors.state.danger }}> *</Text>}
               </Text>
-              <TextInput
-                value={valoresExtra[clave] ?? ''}
-                onChangeText={(texto) => setValoresExtra((v) => ({ ...v, [clave]: texto }))}
-                style={styles.input}
+              <CampoTextoConSugerencias
+                valor={valoresExtra[clave] ?? ''}
+                onChangeTexto={(texto) => setValoresExtra((v) => ({ ...v, [clave]: texto }))}
                 placeholder={cp.etiqueta}
+                sugerencias={mapaSugerencias[clave]}
               />
             </View>
           );

@@ -13,6 +13,9 @@ import { obtenerActivoLocal } from '../db/sync';
 import { useProyectoActual } from '../lib/useProyectoActual';
 import { useConfiguracionCampos } from '../lib/useConfiguracionCampos';
 import { encolarRegistro } from '../lib/registro-offline';
+import { esSoloLetras } from '../lib/validacion-texto';
+import { useSugerencias } from '../lib/useSugerencias';
+import { CampoTextoConSugerencias } from '../components/CampoTextoConSugerencias';
 import { calcularReubicacionAutomatica } from '../lib/ubicacion-relocate';
 import { CLAVE_UBICACION_BASE, useUbicacionActivaStore } from '../lib/ubicacion-activa-store';
 import { capturarFoto, eliminarFotoLocal, type FotoCapturada } from '../lib/fotos';
@@ -104,6 +107,7 @@ export function ActualizarScreen({ route, navigation }: Props) {
   const { activoId } = route.params;
   const { proyecto } = useProyectoActual();
   const { campos, camposPersonalizados, fotoObligatoria } = useConfiguracionCampos();
+  const mapaSugerencias = useSugerencias();
   const [enviando, setEnviando] = useState(false);
   const [fotos, setFotos] = useState<FotoCapturada[]>([]);
   const [valoresExtra, setValoresExtra] = useState<Record<string, string>>({});
@@ -227,6 +231,18 @@ export function ActualizarScreen({ route, navigation }: Props) {
     }
     if (faltantes.length > 0) {
       Alert.alert('Completa los campos obligatorios', faltantes.join(', '));
+      return;
+    }
+
+    // El nombre puede venir con números de antes de esta restricción (p. ej.
+    // importado por Excel) — si nunca se toca, valoresExtra igual lo trae
+    // precargado, así que este chequeo aplica aunque el auditor no lo edite.
+    const nombreActual = valoresExtra.nombre;
+    if (nombreActual !== undefined && !esSoloLetras(nombreActual)) {
+      Alert.alert(
+        'Nombre inválido',
+        'El nombre no puede contener números. Corrígelo para poder guardar esta auditoría.',
+      );
       return;
     }
 
@@ -445,12 +461,18 @@ export function ActualizarScreen({ route, navigation }: Props) {
                 {c.etiqueta}
                 {c.requerido && <Text style={{ color: colors.state.danger }}> *</Text>}
               </Text>
-              <TextInput
-                value={valoresExtra[c.campo] ?? ''}
-                onChangeText={(texto) => setValoresExtra((v) => ({ ...v, [c.campo]: texto }))}
-                style={styles.input}
+              <CampoTextoConSugerencias
+                valor={valoresExtra[c.campo] ?? ''}
+                onChangeTexto={(texto) => setValoresExtra((v) => ({ ...v, [c.campo]: texto }))}
                 keyboardType={c.tipo === 'number' ? 'numeric' : 'default'}
                 placeholder={c.etiqueta}
+                soloLetrasActivo={c.campo === 'nombre'}
+                sugerencias={mapaSugerencias[c.campo]}
+                error={
+                  c.campo === 'nombre' && !esSoloLetras(valoresExtra.nombre ?? '')
+                    ? 'El nombre no puede contener números.'
+                    : undefined
+                }
               />
             </View>
           ),
@@ -464,11 +486,11 @@ export function ActualizarScreen({ route, navigation }: Props) {
                 {cp.etiqueta}
                 {cp.requerido && <Text style={{ color: colors.state.danger }}> *</Text>}
               </Text>
-              <TextInput
-                value={valoresExtra[clave] ?? ''}
-                onChangeText={(texto) => setValoresExtra((v) => ({ ...v, [clave]: texto }))}
-                style={styles.input}
+              <CampoTextoConSugerencias
+                valor={valoresExtra[clave] ?? ''}
+                onChangeTexto={(texto) => setValoresExtra((v) => ({ ...v, [clave]: texto }))}
                 placeholder={cp.etiqueta}
+                sugerencias={mapaSugerencias[clave]}
               />
             </View>
           );

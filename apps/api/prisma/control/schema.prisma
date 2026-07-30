@@ -61,13 +61,18 @@ model Cliente {
 /// packages/shared/src/campos-catalogo.ts) — no hace falta pre-sembrar nada
 /// al aprovisionar un cliente nuevo.
 model ConfiguracionCampo {
-  id        String  @id @default(cuid())
-  clienteId String
-  cliente   Cliente @relation(fields: [clienteId], references: [id])
-  campo     String
-  visible   Boolean @default(true)
-  requerido Boolean @default(false)
-  orden     Int     @default(0)
+  id          String  @id @default(cuid())
+  clienteId   String
+  cliente     Cliente @relation(fields: [clienteId], references: [id])
+  campo       String
+  visible     Boolean @default(true)
+  requerido   Boolean @default(false)
+  orden       Int     @default(0)
+  /// Si el campo ofrece sugerencias dinámicas al auditor (autocompletar con lo
+  /// que ya escribieron otros auditores, en ese mismo campo y proyecto). Solo
+  /// aplica a los campos marcados `permiteSugerencias` en el catálogo
+  /// compartido — el service lo valida antes de guardar.
+  sugerencias Boolean @default(false)
 
   @@unique([clienteId, campo])
 }
@@ -76,14 +81,16 @@ model ConfiguracionCampo {
 /// especiales de ese cliente. El valor por activo se guarda en
 /// Activo.camposPersonalizados (tenant DB) como {[id]: valor}.
 model CampoPersonalizado {
-  id        String   @id @default(cuid())
-  clienteId String
-  cliente   Cliente  @relation(fields: [clienteId], references: [id])
-  etiqueta  String
-  visible   Boolean  @default(true)
-  requerido Boolean  @default(false)
-  orden     Int      @default(0)
-  createdAt DateTime @default(now())
+  id          String   @id @default(cuid())
+  clienteId   String
+  cliente     Cliente  @relation(fields: [clienteId], references: [id])
+  etiqueta    String
+  visible     Boolean  @default(true)
+  requerido   Boolean  @default(false)
+  orden       Int      @default(0)
+  /// Igual que ConfiguracionCampo.sugerencias — acá siempre elegible, son texto libre.
+  sugerencias Boolean  @default(false)
+  createdAt   DateTime @default(now())
 }
 
 /// Campo adicional de la "ubicación activa" de la sesión móvil (Torre, Piso,

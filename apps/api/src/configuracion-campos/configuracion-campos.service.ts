@@ -42,6 +42,7 @@ export class ConfiguracionCamposService {
           visible: true,
           requerido: true,
           orden: guardadosPorCampo.get(catalogo.campo)?.orden ?? 0,
+          sugerencias: false,
         };
       }
       const override = guardadosPorCampo.get(catalogo.campo);
@@ -52,6 +53,11 @@ export class ConfiguracionCamposService {
         visible: override?.visible ?? catalogo.defaultVisible,
         requerido: override?.requerido ?? catalogo.defaultRequerido,
         orden: override?.orden ?? 0,
+        // Clamp defensivo: aunque quedara una fila guardada con sugerencias=true
+        // de antes de que el campo dejara de ser elegible, nunca se expone así.
+        sugerencias: catalogo.permiteSugerencias
+          ? (override?.sugerencias ?? false)
+          : false,
       };
     });
   }
@@ -112,6 +118,14 @@ export class ConfiguracionCamposService {
           `El campo "${CAMPO_IDENTIDAD}" es el identificador único del activo — no se puede ocultar ni volver opcional`,
         );
       }
+      const catalogo = CAMPOS_ACTIVO_CATALOGO.find(
+        (c) => c.campo === item.campo,
+      );
+      if (item.sugerencias && !catalogo?.permiteSugerencias) {
+        throw new BadRequestException(
+          `El campo "${item.campo}" no admite sugerencias dinámicas`,
+        );
+      }
     }
 
     await this.control.$transaction(
@@ -123,8 +137,13 @@ export class ConfiguracionCamposService {
             campo: item.campo,
             visible: item.visible,
             requerido: item.requerido,
+            sugerencias: item.sugerencias,
           },
-          update: { visible: item.visible, requerido: item.requerido },
+          update: {
+            visible: item.visible,
+            requerido: item.requerido,
+            sugerencias: item.sugerencias,
+          },
         }),
       ),
     );
@@ -143,7 +162,12 @@ export class ConfiguracionCamposService {
       throw new NotFoundException('Cliente no encontrado');
     }
     return this.control.campoPersonalizado.create({
-      data: { clienteId, etiqueta: dto.etiqueta, requerido: dto.requerido },
+      data: {
+        clienteId,
+        etiqueta: dto.etiqueta,
+        requerido: dto.requerido,
+        sugerencias: dto.sugerencias,
+      },
     });
   }
 

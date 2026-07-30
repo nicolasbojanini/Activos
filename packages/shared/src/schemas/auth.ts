@@ -103,6 +103,8 @@ export const configuracionCampoSchema = z.object({
   visible: z.boolean(),
   requerido: z.boolean(),
   orden: z.number(),
+  /** Si el campo ofrece sugerencias dinámicas mientras el auditor escribe — ver CAMPOS_CON_SUGERENCIAS_ELEGIBLES. */
+  sugerencias: z.boolean(),
 });
 
 export type ConfiguracionCampoOutput = z.infer<typeof configuracionCampoSchema>;
@@ -113,6 +115,7 @@ export const actualizarConfiguracionCamposSchema = z.object({
       campo: z.string(),
       visible: z.boolean(),
       requerido: z.boolean(),
+      sugerencias: z.boolean(),
     }),
   ),
 });
@@ -127,6 +130,8 @@ export const campoPersonalizadoSchema = z.object({
   visible: z.boolean(),
   requerido: z.boolean(),
   orden: z.number(),
+  /** Los campos personalizados son siempre texto libre — todos pueden ofrecer sugerencias. */
+  sugerencias: z.boolean(),
 });
 
 export type CampoPersonalizadoOutput = z.infer<typeof campoPersonalizadoSchema>;
@@ -134,6 +139,7 @@ export type CampoPersonalizadoOutput = z.infer<typeof campoPersonalizadoSchema>;
 export const crearCampoPersonalizadoSchema = z.object({
   etiqueta: z.string().min(1, 'La etiqueta es obligatoria'),
   requerido: z.boolean().default(false),
+  sugerencias: z.boolean().default(false),
 });
 
 export type CrearCampoPersonalizadoInput = z.infer<
@@ -143,6 +149,7 @@ export type CrearCampoPersonalizadoInput = z.infer<
 export const actualizarCampoPersonalizadoSchema = z.object({
   visible: z.boolean().optional(),
   requerido: z.boolean().optional(),
+  sugerencias: z.boolean().optional(),
 });
 
 export type ActualizarCampoPersonalizadoInput = z.infer<

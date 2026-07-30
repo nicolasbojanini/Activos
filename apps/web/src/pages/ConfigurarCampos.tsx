@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronLeft, Trash2 } from 'lucide-react';
-import { CAMPO_IDENTIDAD, type ConfiguracionCampoOutput } from '@adn/shared';
+import { CAMPO_IDENTIDAD, CAMPOS_CON_SUGERENCIAS_ELEGIBLES, type ConfiguracionCampoOutput } from '@adn/shared';
 import { Layout } from '../components/Layout';
 import { useAuthStore } from '../lib/auth-store';
 import { ApiError } from '../lib/api';
@@ -21,7 +21,7 @@ import {
 /** Ubicación activa: hasta 6 campos en total, siendo "Ubicación" (el base, fijo) uno de ellos. */
 const MAXIMO_CAMPOS_UBICACION_ADICIONALES = 5;
 
-type CampoEstado = Pick<ConfiguracionCampoOutput, 'campo' | 'etiqueta' | 'visible' | 'requerido'>;
+type CampoEstado = Pick<ConfiguracionCampoOutput, 'campo' | 'etiqueta' | 'visible' | 'requerido' | 'sugerencias'>;
 
 export function ConfigurarCampos() {
   const { clienteId } = useParams<{ clienteId: string }>();
@@ -32,6 +32,7 @@ export function ConfigurarCampos() {
   const [campos, setCampos] = useState<CampoEstado[] | null>(null);
   const [nuevaEtiqueta, setNuevaEtiqueta] = useState('');
   const [nuevoRequerido, setNuevoRequerido] = useState(false);
+  const [nuevoSugerencias, setNuevoSugerencias] = useState(false);
   const [nuevaEtiquetaUbicacion, setNuevaEtiquetaUbicacion] = useState('');
   const [nuevoRequeridoUbicacion, setNuevoRequeridoUbicacion] = useState(false);
   // Recuerda para qué cliente ya se hidrató `campos`, para hidratar una sola
@@ -52,7 +53,15 @@ export function ConfigurarCampos() {
     // los estándar). Solo se hidrata una vez por cliente; de ahí en adelante
     // el estado local + "Guardar configuración" son la única fuente de verdad.
     if (data && hidratadoPara.current !== clienteId) {
-      setCampos(data.campos.map((c) => ({ campo: c.campo, etiqueta: c.etiqueta, visible: c.visible, requerido: c.requerido })));
+      setCampos(
+        data.campos.map((c) => ({
+          campo: c.campo,
+          etiqueta: c.etiqueta,
+          visible: c.visible,
+          requerido: c.requerido,
+          sugerencias: c.sugerencias,
+        })),
+      );
       hidratadoPara.current = clienteId ?? null;
     }
   }, [data, clienteId]);
@@ -60,17 +69,19 @@ export function ConfigurarCampos() {
   const guardarMutation = useMutation({
     mutationFn: () =>
       actualizarConfiguracionCampos(clienteId!, {
-        campos: campos!.map(({ campo, visible, requerido }) => ({ campo, visible, requerido })),
+        campos: campos!.map(({ campo, visible, requerido, sugerencias }) => ({ campo, visible, requerido, sugerencias })),
       }),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['configuracion-campos', clienteId] }),
   });
 
   const crearPersonalizadoMutation = useMutation({
-    mutationFn: () => crearCampoPersonalizado(clienteId!, { etiqueta: nuevaEtiqueta, requerido: nuevoRequerido }),
+    mutationFn: () =>
+      crearCampoPersonalizado(clienteId!, { etiqueta: nuevaEtiqueta, requerido: nuevoRequerido, sugerencias: nuevoSugerencias }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['configuracion-campos', clienteId] });
       setNuevaEtiqueta('');
       setNuevoRequerido(false);
+      setNuevoSugerencias(false);
     },
   });
 
@@ -80,8 +91,17 @@ export function ConfigurarCampos() {
   });
 
   const actualizarPersonalizadoMutation = useMutation({
-    mutationFn: ({ campoId, visible, requerido }: { campoId: string; visible?: boolean; requerido?: boolean }) =>
-      actualizarCampoPersonalizado(clienteId!, campoId, { visible, requerido }),
+    mutationFn: ({
+      campoId,
+      visible,
+      requerido,
+      sugerencias,
+    }: {
+      campoId: string;
+      visible?: boolean;
+      requerido?: boolean;
+      sugerencias?: boolean;
+    }) => actualizarCampoPersonalizado(clienteId!, campoId, { visible, requerido, sugerencias }),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['configuracion-campos', clienteId] }),
   });
 
@@ -114,14 +134,17 @@ export function ConfigurarCampos() {
     return <Navigate to="/auditorias" replace />;
   }
 
-  const toggle = (campo: string, key: 'visible' | 'requerido') => {
+  const toggle = (campo: string, key: 'visible' | 'requerido' | 'sugerencias') => {
     setCampos((prev) =>
       prev?.map((c) => {
         if (c.campo !== campo) return c;
         if (campo === CAMPO_IDENTIDAD) return c; // codigoAnterior no se puede ocultar ni volver opcional
         const siguiente = { ...c, [key]: !c[key] };
-        // si se oculta, no tiene sentido dejarlo marcado como obligatorio
-        if (key === 'visible' && !siguiente.visible) siguiente.requerido = false;
+        // si se oculta, no tiene sentido dejarlo marcado como obligatorio ni con sugerencias
+        if (key === 'visible' && !siguiente.visible) {
+          siguiente.requerido = false;
+          siguiente.sugerencias = false;
+        }
         return siguiente;
       }) ?? null,
     );
@@ -138,9 +161,10 @@ export function ConfigurarCampos() {
         <p className="eyebrow">CL/ CAMPOS</p>
         <h1 style={{ fontSize: 24 }}>Campos de la ficha de activo</h1>
         <p style={{ color: 'var(--adn-ink-500)', fontSize: 13, margin: '4px 0 0' }}>
-          Elige qué campos se muestran al importar/auditar y cuáles son obligatorios. Aplica a todos los inventarios
-          de este cliente. "{CAMPO_IDENTIDAD}" es el identificador único del activo y no se puede ocultar ni volver
-          opcional.
+          Elige qué campos se muestran al importar/auditar, cuáles son obligatorios y cuáles ofrecen sugerencias
+          dinámicas (autocompletar con lo que ya escribieron otros auditores en ese mismo campo, dentro de un mismo
+          proyecto — útil para evitar variantes como "negro"/"negra"). Aplica a todos los inventarios de este
+          cliente. "{CAMPO_IDENTIDAD}" es el identificador único del activo y no se puede ocultar ni volver opcional.
         </p>
       </header>
 
@@ -157,19 +181,21 @@ export function ConfigurarCampos() {
               marginBottom: 20,
             }}
           >
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 100px 100px', padding: '10px 20px', fontSize: 11, fontWeight: 600, color: 'var(--adn-ink-500)', borderBottom: '1px solid var(--adn-ink-100)' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 100px 100px 100px', padding: '10px 20px', fontSize: 11, fontWeight: 600, color: 'var(--adn-ink-500)', borderBottom: '1px solid var(--adn-ink-100)' }}>
               <span>Campo</span>
               <span>Visible</span>
               <span>Obligatorio</span>
+              <span>Sugerencias</span>
             </div>
             {campos.map((campo) => {
               const bloqueado = campo.campo === CAMPO_IDENTIDAD;
+              const elegibleSugerencias = CAMPOS_CON_SUGERENCIAS_ELEGIBLES.includes(campo.campo);
               return (
                 <div
                   key={campo.campo}
                   style={{
                     display: 'grid',
-                    gridTemplateColumns: '1fr 100px 100px',
+                    gridTemplateColumns: '1fr 100px 100px 100px',
                     padding: '10px 20px',
                     fontSize: 13,
                     borderTop: '1px solid var(--adn-ink-100)',
@@ -190,6 +216,16 @@ export function ConfigurarCampos() {
                     disabled={bloqueado || !campo.visible}
                     onChange={() => toggle(campo.campo, 'requerido')}
                   />
+                  {elegibleSugerencias ? (
+                    <input
+                      type="checkbox"
+                      checked={campo.sugerencias}
+                      disabled={!campo.visible}
+                      onChange={() => toggle(campo.campo, 'sugerencias')}
+                    />
+                  ) : (
+                    <span />
+                  )}
                 </div>
               );
             })}
@@ -394,6 +430,15 @@ export function ConfigurarCampos() {
                     />
                     Obligatorio
                   </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: 'var(--adn-ink-500)', cursor: cp.visible ? 'pointer' : 'default' }}>
+                    <input
+                      type="checkbox"
+                      checked={cp.sugerencias}
+                      disabled={actualizarPersonalizadoMutation.isPending || !cp.visible}
+                      onChange={() => actualizarPersonalizadoMutation.mutate({ campoId: cp.id, sugerencias: !cp.sugerencias })}
+                    />
+                    Sugerencias
+                  </label>
                   <button
                     onClick={() => eliminarPersonalizadoMutation.mutate(cp.id)}
                     disabled={eliminarPersonalizadoMutation.isPending}
@@ -424,6 +469,10 @@ export function ConfigurarCampos() {
               <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, whiteSpace: 'nowrap' }}>
                 <input type="checkbox" checked={nuevoRequerido} onChange={(e) => setNuevoRequerido(e.target.checked)} />
                 Obligatorio
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, whiteSpace: 'nowrap' }}>
+                <input type="checkbox" checked={nuevoSugerencias} onChange={(e) => setNuevoSugerencias(e.target.checked)} />
+                Sugerencias
               </label>
               <button type="submit" disabled={crearPersonalizadoMutation.isPending || !nuevaEtiqueta.trim()} style={primaryButtonStyle}>
                 Agregar
