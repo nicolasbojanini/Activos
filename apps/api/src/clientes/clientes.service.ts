@@ -85,6 +85,11 @@ export class ClientesService {
       // crea filas incluso para dejar un campo en su valor por defecto.
       this.control.configuracionCampo.deleteMany({ where: { clienteId } }),
       this.control.campoPersonalizado.deleteMany({ where: { clienteId } }),
+      // Misma FK obligatoria que las dos anteriores — toda tabla nueva con
+      // clienteId hacia Cliente tiene que sumarse acá o vuelve a romper el
+      // borrado (pasó una vez con configuracionCampo/campoPersonalizado, y
+      // de nuevo acá al agregar campoUbicacion sin acordarse de este método).
+      this.control.campoUbicacion.deleteMany({ where: { clienteId } }),
       this.control.cliente.delete({ where: { id: clienteId } }),
     ]);
   }
