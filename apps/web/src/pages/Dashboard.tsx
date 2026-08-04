@@ -142,7 +142,7 @@ function ProyectoRow({
         onClick={onToggle}
         style={{
           display: 'grid',
-          gridTemplateColumns: '1.5fr 1fr 100px 140px 32px',
+          gridTemplateColumns: '1.5fr 1fr 100px 140px 160px 32px',
           padding: '12px 20px',
           fontSize: 13,
           alignItems: 'center',
