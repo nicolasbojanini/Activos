@@ -82,7 +82,7 @@ interface FilaCambio {
   Cambios: string;
   Nota: string;
   Auditor: string;
-  Fecha: string;
+  Fecha: Date | null;
 }
 
 interface FilaNoRegistrado {
@@ -91,7 +91,13 @@ interface FilaNoRegistrado {
   Categoría: string;
   Nota: string;
   Auditor: string;
-  Fecha: string;
+  Fecha: Date | null;
+}
+
+/** Fila de "Estado por activo": columnas dinámicas (catálogo + personalizados + ubicación) más Fecha. */
+interface FilaEstado {
+  [etiqueta: string]: string | Date | null;
+  Fecha: Date | null;
 }
 
 function formatearFecha(fecha: Date | null | undefined): string {
@@ -102,6 +108,28 @@ function formatearFecha(fecha: Date | null | undefined): string {
         timeZone: 'America/Bogota',
       })
     : '';
+}
+
+/**
+ * SheetJS convierte un `Date` de JS a fecha nativa de Excel leyendo sus
+ * getters LOCALES (no UTC) — verificado directamente contra el paquete
+ * `xlsx` instalado. Como el servidor corre en UTC (igual que el resto de
+ * esta app: ver el patrón `"auditadoEn" - INTERVAL '5 horas'` ya usado en
+ * las consultas SQL), sin este ajuste el Excel mostraría la hora UTC en vez
+ * de la hora de Bogotá — 8:00 p. m. en vez de 3:00 p. m., por ejemplo.
+ */
+function aFechaExcel(fecha: Date | null): Date | null {
+  return fecha ? new Date(fecha.getTime() - 5 * 60 * 60 * 1000) : null;
+}
+
+/**
+ * Copia superficial de las filas con `Fecha` ajustada para que Excel/CSV la
+ * muestren como fecha nativa en vez de texto — ver aFechaExcel(). El PDF usa
+ * las filas originales (sin este ajuste) y formatea la fecha con
+ * formatearFecha(), que sí convierte correctamente vía Intl/timeZone.
+ */
+function filasParaExcel<T extends { Fecha: Date | null }>(filas: T[]): T[] {
+  return filas.map((f) => ({ ...f, Fecha: aFechaExcel(f.Fecha) }));
 }
 
 function aTexto(valor: unknown): string {
@@ -132,7 +160,9 @@ function formatearCambios(cambios: unknown): string {
  * que acordarse de sumarlo acá. Las claves (encabezados de columna) no se
  * tocan: generarPDF accede a ellas por nombre literal (f.Código, f.Auditor…).
  */
-function filaAMayusculas<T extends Record<string, string>>(fila: T): T {
+function filaAMayusculas<T extends Record<string, string | Date | null>>(
+  fila: T,
+): T {
   const resultado = { ...fila };
   for (const clave of Object.keys(resultado) as (keyof T)[]) {
     const valor = resultado[clave];
@@ -366,17 +396,26 @@ export class ReportesService {
     );
 
     // Columnas dinámicas: todo el catálogo estándar + los campos personalizados
-    // marcados visibles para este cliente, en ese orden — nunca los ocultos.
+    // y de ubicación marcados visibles para este cliente, en ese orden —
+    // nunca los ocultos. Los de ubicación (Torre, Piso, etc.) no tienen
+    // "visible" propio — existir ya implica que se piden, ver
+    // ConfiguracionCamposService.obtenerCamposUbicacion.
     const camposVisibles = (
       await this.configuracionCampos.obtenerCampos(clienteId)
     ).filter((c) => c.visible);
     const camposPersonalizadosVisibles = (
       await this.configuracionCampos.obtenerCamposPersonalizados(clienteId)
     ).filter((cp) => cp.visible);
+    const camposUbicacion =
+      await this.configuracionCampos.obtenerCamposUbicacion(clienteId);
 
-    const filasEstado: Record<string, string>[] = activos.map((activo) => {
+    const filasEstado: FilaEstado[] = activos.map((activo) => {
       const registro = ultimoPorActivo.get(activo.id);
-      const fila: Record<string, string> = {};
+      // El cast evita tener que inicializar Fecha ya mismo solo para
+      // satisfacer el tipo — se asigna más abajo, al final, preservando el
+      // mismo orden de columnas que tenía la hoja antes de este cambio
+      // (SheetJS ordena las columnas según el orden de inserción de claves).
+      const fila = {} as FilaEstado;
       for (const c of camposVisibles) {
         fila[c.etiqueta] = valorCampoActivo(activo, c.campo);
       }
@@ -385,12 +424,18 @@ export class ReportesService {
       for (const cp of camposPersonalizadosVisibles) {
         fila[cp.etiqueta] = valoresPersonalizados[cp.id] ?? '';
       }
+      const valoresUbicacion =
+        (activo.camposUbicacion as Record<string, string> | null) ?? {};
+      for (const cu of camposUbicacion) {
+        fila[cu.etiqueta] = valoresUbicacion[cu.id] ?? '';
+      }
+      fila.Nota = registro?.nota ?? '';
       // Prefijo "auditoría" porque "Estado" ya es la etiqueta del campo
       // estadoFisico (Bueno/Regular/Malo/Baja) cuando está visible — sin el
       // prefijo, esta columna lo pisaría en el mismo objeto de fila.
       fila['Estado auditoría'] = registro?.estado ?? 'PENDIENTE';
       fila.Auditor = registro?.auditorNombre ?? '';
-      fila.Fecha = formatearFecha(registro?.auditadoEn);
+      fila.Fecha = registro?.auditadoEn ?? null;
       return filaAMayusculas(fila);
     });
 
@@ -404,7 +449,7 @@ export class ReportesService {
           Cambios: formatearCambios(registro!.cambios),
           Nota: registro!.nota ?? '',
           Auditor: registro!.auditorNombre,
-          Fecha: formatearFecha(registro!.auditadoEn),
+          Fecha: registro!.auditadoEn,
         }),
       );
 
@@ -418,7 +463,7 @@ export class ReportesService {
           Cambios: '',
           Nota: registro!.nota ?? '',
           Auditor: registro!.auditorNombre,
-          Fecha: formatearFecha(registro!.auditadoEn),
+          Fecha: registro!.auditadoEn,
         }),
       );
 
@@ -443,7 +488,7 @@ export class ReportesService {
               : '',
           Nota: registro.nota ?? '',
           Auditor: nombresNoRegistrados.get(registro.auditorId) ?? '—',
-          Fecha: formatearFecha(registro.auditadoEn),
+          Fecha: registro.auditadoEn,
         });
       },
     );
@@ -452,9 +497,17 @@ export class ReportesService {
       .replace(/[^a-z0-9]+/gi, '-')
       .toLowerCase();
 
+    // dateNF: SheetJS necesita un formato explícito para que la celda de
+    // fecha se muestre como dd/mm/aaaa hh:mm — sin esto usa un formato
+    // numérico por defecto poco legible para un cliente colombiano.
+    const OPCIONES_HOJA: XLSX.JSON2SheetOpts = {
+      cellDates: true,
+      dateNF: 'dd/mm/yyyy hh:mm',
+    };
+
     if (formato === 'csv') {
       const csv = XLSX.utils.sheet_to_csv(
-        XLSX.utils.json_to_sheet(filasEstado),
+        XLSX.utils.json_to_sheet(filasParaExcel(filasEstado), OPCIONES_HOJA),
       );
       return {
         buffer: Buffer.from(csv, 'utf-8'),
@@ -481,22 +534,25 @@ export class ReportesService {
     const libro = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(
       libro,
-      XLSX.utils.json_to_sheet(filasEstado),
+      XLSX.utils.json_to_sheet(filasParaExcel(filasEstado), OPCIONES_HOJA),
       'Estado por activo',
     );
     XLSX.utils.book_append_sheet(
       libro,
-      XLSX.utils.json_to_sheet(filasDiferencias),
+      XLSX.utils.json_to_sheet(filasParaExcel(filasDiferencias), OPCIONES_HOJA),
       'Diferencias',
     );
     XLSX.utils.book_append_sheet(
       libro,
-      XLSX.utils.json_to_sheet(filasFaltantes),
+      XLSX.utils.json_to_sheet(filasParaExcel(filasFaltantes), OPCIONES_HOJA),
       'Faltantes',
     );
     XLSX.utils.book_append_sheet(
       libro,
-      XLSX.utils.json_to_sheet(filasNoRegistrados),
+      XLSX.utils.json_to_sheet(
+        filasParaExcel(filasNoRegistrados),
+        OPCIONES_HOJA,
+      ),
       'No registrados',
     );
     const buffer = XLSX.write(libro, {
@@ -553,7 +609,9 @@ export class ReportesService {
           doc
             .fontSize(9)
             .fillColor('#6A7585')
-            .text(`${f.Cambios || 'Sin detalle'} · ${f.Auditor} · ${f.Fecha}`);
+            .text(
+              `${f.Cambios || 'Sin detalle'} · ${f.Auditor} · ${formatearFecha(f.Fecha)}`,
+            );
           doc.fillColor('#101114');
         });
       }
@@ -568,7 +626,9 @@ export class ReportesService {
           doc
             .fontSize(9)
             .fillColor('#6A7585')
-            .text(`${f.Nota || 'Sin nota'} · ${f.Auditor} · ${f.Fecha}`);
+            .text(
+              `${f.Nota || 'Sin nota'} · ${f.Auditor} · ${formatearFecha(f.Fecha)}`,
+            );
           doc.fillColor('#101114');
         });
       }
@@ -583,7 +643,7 @@ export class ReportesService {
           doc
             .fontSize(9)
             .fillColor('#6A7585')
-            .text(`${f.Categoría} · ${f.Auditor} · ${f.Fecha}`);
+            .text(`${f.Categoría} · ${f.Auditor} · ${formatearFecha(f.Fecha)}`);
           doc.fillColor('#101114');
         });
       }
