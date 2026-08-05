@@ -1,4 +1,6 @@
 import type {
+  ActividadDiariaOutput,
+  ActividadHorariaOutput,
   ActivoDetailOutput,
   ActualizarCampoPersonalizadoInput,
   ActualizarCampoUbicacionInput,
@@ -140,6 +142,20 @@ export function getMiAsignacion() {
 /** Solo ADN_ADMIN: todos los proyectos en curso de todos los clientes, con avance y rendimiento por auditor. */
 export function getDashboardGerencial() {
   return apiFetch<ProyectoGerencialOutput[]>('/dashboard/proyectos');
+}
+
+/** Registros de todo el equipo por día (hora Bogotá) — incluye los días sin actividad en 0. */
+export function getActividadDiaria(clienteId: string, proyectoId: string) {
+  return apiFetch<ActividadDiariaOutput[]>(
+    `/dashboard/proyectos/${clienteId}/${proyectoId}/actividad-diaria`,
+  );
+}
+
+/** Registros de todo el equipo por franja de 1 hora (hora Bogotá) de un día específico — siempre 24 franjas. */
+export function getActividadHoraria(clienteId: string, proyectoId: string, dia: string) {
+  return apiFetch<ActividadHorariaOutput[]>(
+    `/dashboard/proyectos/${clienteId}/${proyectoId}/actividad-horaria?dia=${dia}`,
+  );
 }
 
 export function crearUsuario(dto: CrearUsuarioInput) {

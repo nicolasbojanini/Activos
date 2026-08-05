@@ -6,7 +6,14 @@ import { ChevronDown, ChevronUp } from 'lucide-react';
 import type { ProyectoGerencialOutput } from '@adn/shared';
 import { Layout } from '../components/Layout';
 import { useAuthStore } from '../lib/auth-store';
-import { getDashboardGerencial } from '../lib/services';
+import { getActividadDiaria, getActividadHoraria, getDashboardGerencial } from '../lib/services';
+
+/** "2026-08-03" -> "03/08". Manipulación de string a propósito: parsear con `new Date()` interpretaría
+ *  el día en la zona horaria del navegador y podría correrlo un día — acá no hace falta ninguna fecha real. */
+function formatearDiaCorto(dia: string): string {
+  const [, mes, diaNum] = dia.split('-');
+  return `${diaNum}/${mes}`;
+}
 
 export function Dashboard() {
   const usuario = useAuthStore((s) => s.usuario);
@@ -136,6 +143,35 @@ function ProyectoRow({
 }) {
   const auditoresOrdenados = [...proyecto.auditores].sort((a, b) => b.promedioPorDia - a.promedioPorDia);
 
+  // Se piden solo cuando la fila está expandida — igual criterio que la
+  // tabla de auditores, para no traer el historial diario/horario de CADA
+  // proyecto en cada carga del panel cuando la mayoría nunca se despliega.
+  const { data: actividadDiaria, isLoading: cargandoDiaria } = useQuery({
+    queryKey: ['actividad-diaria', proyecto.clienteId, proyecto.proyectoId],
+    queryFn: () => getActividadDiaria(proyecto.clienteId, proyecto.proyectoId),
+    enabled: expandido,
+  });
+
+  const [diaSeleccionado, setDiaSeleccionado] = useState<string | null>(null);
+  // Por defecto, el último día CON actividad (no simplemente el último día
+  // del rango, que podría ser un hueco) — es lo que un gerente quiere ver
+  // primero: "¿cómo fue la jornada más reciente?".
+  const diasConDatos = (actividadDiaria ?? []).filter((d) => d.total > 0);
+  const ultimoDiaConDatos = diasConDatos.length > 0 ? diasConDatos[diasConDatos.length - 1].dia : null;
+  const diaEfectivo = diaSeleccionado ?? ultimoDiaConDatos;
+
+  const { data: actividadHoraria, isLoading: cargandoHoraria } = useQuery({
+    queryKey: ['actividad-horaria', proyecto.clienteId, proyecto.proyectoId, diaEfectivo],
+    queryFn: () => getActividadHoraria(proyecto.clienteId, proyecto.proyectoId, diaEfectivo!),
+    enabled: expandido && !!diaEfectivo,
+  });
+
+  const datosDiarios = (actividadDiaria ?? []).map((d) => ({ etiqueta: formatearDiaCorto(d.dia), total: d.total }));
+  const datosHorarios = (actividadHoraria ?? []).map((h) => ({
+    etiqueta: `${h.hora}-${(h.hora + 1) % 24}`,
+    total: h.total,
+  }));
+
   return (
     <div style={{ borderTop: '1px solid var(--adn-ink-100)' }}>
       <div
@@ -191,11 +227,96 @@ function ProyectoRow({
             tratado como un solo auditor: total de registros de todos ÷ días distintos en que cualquiera del equipo
             trabajó (un día en que coincidieron dos auditores cuenta una sola vez).
           </p>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 16 }}>
+            <div style={chartCardStyle}>
+              <h4 style={chartTitleStyle}>Activos procesados por día (equipo)</h4>
+              {cargandoDiaria ? (
+                <p style={chartVacioStyle}>Cargando…</p>
+              ) : datosDiarios.length === 0 ? (
+                <p style={chartVacioStyle}>Sin actividad registrada todavía.</p>
+              ) : (
+                <ResponsiveContainer width="100%" height={160}>
+                  <BarChart data={datosDiarios}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="etiqueta" fontSize={10} />
+                    <YAxis allowDecimals={false} fontSize={10} width={28} />
+                    <Tooltip labelFormatter={(etiqueta) => `Día ${etiqueta}`} formatter={(v) => [v, 'Registros']} />
+                    <Bar dataKey="total" fill="var(--adn-blue)" radius={[3, 3, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+
+            <div style={chartCardStyle}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                <h4 style={{ ...chartTitleStyle, marginBottom: 0 }}>Activos procesados por hora</h4>
+                {datosDiarios.length > 0 && (
+                  <select
+                    value={diaEfectivo ?? ''}
+                    onChange={(e) => setDiaSeleccionado(e.target.value)}
+                    style={diaSelectStyle}
+                  >
+                    {[...(actividadDiaria ?? [])].reverse().map((d) => (
+                      <option key={d.dia} value={d.dia}>
+                        {formatearDiaCorto(d.dia)} {d.total > 0 ? `· ${d.total}` : '· sin actividad'}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+              {cargandoDiaria || cargandoHoraria ? (
+                <p style={chartVacioStyle}>Cargando…</p>
+              ) : !diaEfectivo || datosHorarios.every((h) => h.total === 0) ? (
+                <p style={chartVacioStyle}>Sin actividad ese día.</p>
+              ) : (
+                <ResponsiveContainer width="100%" height={160}>
+                  <BarChart data={datosHorarios}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="etiqueta" fontSize={9} interval={1} />
+                    <YAxis allowDecimals={false} fontSize={10} width={28} />
+                    <Tooltip labelFormatter={(etiqueta) => `${etiqueta} h`} formatter={(v) => [v, 'Registros']} />
+                    <Bar dataKey="total" fill="var(--adn-blue)" radius={[3, 3, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>
   );
 }
+
+const chartCardStyle = {
+  background: '#fff',
+  border: '1px solid var(--adn-ink-200)',
+  borderRadius: 'var(--adn-radius-md)',
+  padding: 12,
+} as const;
+
+const chartTitleStyle = {
+  fontSize: 12,
+  fontWeight: 600,
+  color: 'var(--adn-ink-700)',
+  marginBottom: 8,
+} as const;
+
+const chartVacioStyle = {
+  fontSize: 11,
+  color: 'var(--adn-ink-400)',
+  textAlign: 'center',
+  padding: '32px 0',
+  margin: 0,
+} as const;
+
+const diaSelectStyle = {
+  fontSize: 11,
+  padding: '3px 6px',
+  borderRadius: 'var(--adn-radius-sm)',
+  border: '1px solid var(--adn-ink-200)',
+  color: 'var(--adn-ink-700)',
+} as const;
 
 const auditorThStyle = {
   textAlign: 'left',

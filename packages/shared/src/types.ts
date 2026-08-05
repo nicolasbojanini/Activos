@@ -125,3 +125,23 @@ export interface ProyectoGerencialOutput {
    */
   promedioEquipoPorDia: number;
 }
+
+/**
+ * Un punto del histograma diario de un proyecto: cuántos registros de
+ * auditoría (de todo el equipo, sin importar quién esté asignado hoy)
+ * cayeron ese día — hora de Bogotá. Incluye los días sin actividad dentro
+ * del rango con datos (total: 0), para que el histograma muestre huecos en
+ * vez de saltarse fechas.
+ */
+export interface ActividadDiariaOutput {
+  /** YYYY-MM-DD, hora de Bogotá. */
+  dia: string;
+  total: number;
+}
+
+/** Un punto del histograma horario de un proyecto para UN día específico — franjas de 1 hora, hora de Bogotá. */
+export interface ActividadHorariaOutput {
+  /** 0-23: la franja es [hora, hora+1). */
+  hora: number;
+  total: number;
+}

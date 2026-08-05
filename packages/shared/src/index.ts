@@ -7,4 +7,5 @@ export * from './schemas/registroAuditoria';
 export * from './schemas/auth';
 export * from './schemas/imports';
 export * from './schemas/reportes';
+export * from './schemas/dashboard';
 export * from './types';

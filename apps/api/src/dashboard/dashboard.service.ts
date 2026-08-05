@@ -1,5 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type {
+  ActividadDiariaOutput,
+  ActividadHorariaOutput,
   AuditorRendimientoOutput,
   ProyectoGerencialOutput,
 } from '@adn/shared';
@@ -148,5 +150,83 @@ export class DashboardService {
         };
       }),
     );
+  }
+
+  /**
+   * Histograma diario del proyecto: registros de TODO el equipo por día
+   * (hora de Bogotá), sin filtrar por quién está asignado hoy — a
+   * diferencia de promedioEquipoPorDia, esto es una vista histórica: si un
+   * auditor trabajó dos semanas y lo reasignaron después, esas dos semanas
+   * de trabajo real no deben desaparecer del gráfico de los días en que
+   * ocurrieron.
+   *
+   * Rellena con total:0 los días sin actividad DENTRO del rango que sí
+   * tiene datos (generate_series), para que el histograma muestre huecos
+   * en vez de saltarse fechas — un día sin captura es información (nadie
+   * fue a terreno), no un hueco en el eje X.
+   */
+  async obtenerActividadDiaria(
+    clienteId: string,
+    proyectoId: string,
+  ): Promise<ActividadDiariaOutput[]> {
+    const tenantPrisma = await this.tenants.getClient(clienteId);
+    const filas = await tenantPrisma.$queryRaw<
+      { dia: string; total: number }[]
+    >`
+      WITH rango AS (
+        SELECT
+          MIN(("auditadoEn" - INTERVAL '5 hours')::date) AS min_dia,
+          MAX(("auditadoEn" - INTERVAL '5 hours')::date) AS max_dia
+        FROM "RegistroAuditoria"
+        WHERE "proyectoId" = ${proyectoId}
+      ),
+      dias AS (
+        SELECT generate_series(min_dia, max_dia, interval '1 day')::date AS dia
+        FROM rango
+        WHERE min_dia IS NOT NULL
+      ),
+      conteo AS (
+        SELECT (("auditadoEn" - INTERVAL '5 hours')::date) AS dia, COUNT(*) AS total
+        FROM "RegistroAuditoria"
+        WHERE "proyectoId" = ${proyectoId}
+        GROUP BY dia
+      )
+      SELECT dias.dia::text AS dia, COALESCE(conteo.total, 0)::int AS total
+      FROM dias
+      LEFT JOIN conteo ON conteo.dia = dias.dia
+      ORDER BY dias.dia
+    `;
+    return filas;
+  }
+
+  /**
+   * Histograma horario de UN día del proyecto (todo el equipo), franjas de
+   * 1 hora en hora de Bogotá — igual criterio "sin filtrar por asignación
+   * actual" que obtenerActividadDiaria. Devuelve las 24 franjas siempre
+   * (con total:0 donde no hubo captura) para que el gráfico tenga el mismo
+   * eje X sin importar qué día se elija.
+   */
+  async obtenerActividadHoraria(
+    clienteId: string,
+    proyectoId: string,
+    dia: string,
+  ): Promise<ActividadHorariaOutput[]> {
+    const tenantPrisma = await this.tenants.getClient(clienteId);
+    const filas = await tenantPrisma.$queryRaw<
+      { hora: number; total: number }[]
+    >`
+      SELECT
+        EXTRACT(HOUR FROM ("auditadoEn" - INTERVAL '5 hours'))::int AS hora,
+        COUNT(*)::int AS total
+      FROM "RegistroAuditoria"
+      WHERE "proyectoId" = ${proyectoId}
+        AND (("auditadoEn" - INTERVAL '5 hours')::date) = ${dia}::date
+      GROUP BY hora
+    `;
+    const porHora = new Map(filas.map((f) => [f.hora, f.total]));
+    return Array.from({ length: 24 }, (_, hora) => ({
+      hora,
+      total: porHora.get(hora) ?? 0,
+    }));
   }
 }
