@@ -133,7 +133,7 @@ export function Auditorias() {
             borderRadius: 'var(--adn-radius-lg)',
             padding: 20,
             display: 'grid',
-            gridTemplateColumns: '1fr 220px auto',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
             gap: 12,
             alignItems: 'end',
             maxWidth: 720,
@@ -176,7 +176,7 @@ export function Auditorias() {
 
   return (
     <Layout>
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
+      <header style={{ display: 'flex', flexWrap: 'wrap', gap: 12, justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
         <div>
           <p className="eyebrow">AU/</p>
           <h1 style={{ fontSize: 24 }}>{proyecto.nombre}</h1>
@@ -202,7 +202,7 @@ export function Auditorias() {
         </button>
       </header>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 24 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16, marginBottom: 24 }}>
         <div
           style={{
             background: '#fff',
@@ -289,8 +289,10 @@ export function Auditorias() {
         <div
           style={{
             display: 'flex',
+            flexWrap: 'wrap',
             alignItems: 'center',
             justifyContent: 'space-between',
+            gap: 12,
             padding: '16px 20px',
             borderBottom: '1px solid var(--adn-ink-200)',
           }}
@@ -304,7 +306,8 @@ export function Auditorias() {
               border: '1px solid var(--adn-ink-200)',
               borderRadius: 'var(--adn-radius-md)',
               padding: '6px 12px',
-              minWidth: 260,
+              flex: '1 1 220px',
+              maxWidth: 320,
             }}
           >
             <Search size={16} strokeWidth={1.8} color="var(--adn-ink-400)" />
@@ -320,6 +323,7 @@ export function Auditorias() {
           </div>
         </div>
 
+        <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
             {table.getHeaderGroups().map((headerGroup) => (
@@ -373,6 +377,7 @@ export function Auditorias() {
             ))}
           </tbody>
         </table>
+        </div>
 
         <div
           style={{

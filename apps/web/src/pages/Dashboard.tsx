@@ -6,6 +6,7 @@ import { ChevronDown, ChevronUp } from 'lucide-react';
 import type { ProyectoGerencialOutput } from '@adn/shared';
 import { Layout } from '../components/Layout';
 import { useAuthStore } from '../lib/auth-store';
+import { useIsMobile } from '../lib/useIsMobile';
 import { getActividadDiaria, getActividadHoraria, getDashboardGerencial } from '../lib/services';
 
 /** "2026-08-03" -> "03/08". Manipulación de string a propósito: parsear con `new Date()` interpretaría
@@ -18,6 +19,7 @@ function formatearDiaCorto(dia: string): string {
 export function Dashboard() {
   const usuario = useAuthStore((s) => s.usuario);
   const [expandido, setExpandido] = useState<string | null>(null);
+  const isMobile = useIsMobile();
 
   const { data: proyectos, isLoading } = useQuery({
     queryKey: ['dashboard-gerencial'],
@@ -59,7 +61,14 @@ export function Dashboard() {
         <p style={{ color: 'var(--adn-ink-500)' }}>No hay ningún proyecto en curso todavía.</p>
       ) : (
         <>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 24 }}>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+              gap: 16,
+              marginBottom: 24,
+            }}
+          >
             <KpiCard label="Proyectos en curso" value={kpis.totalProyectos} />
             <KpiCard label="Auditores activos" value={kpis.totalAuditores} />
             <KpiCard label="Avance promedio" value={`${Math.round(kpis.avancePromedio * 100)}%`} />
@@ -77,10 +86,20 @@ export function Dashboard() {
           >
             <h3 style={{ fontSize: 15, marginBottom: 12 }}>Avance por proyecto</h3>
             <ResponsiveContainer width="100%" height={Math.max(180, proyectos.length * 40)}>
-              <BarChart data={proyectos.map((p) => ({ nombre: `${p.clienteNombre} · ${p.proyectoNombre}`, avance: Math.round(p.resumen.pct * 100) }))} layout="vertical" margin={{ left: 20 }}>
+              <BarChart
+                data={proyectos.map((p) => ({ nombre: `${p.clienteNombre} · ${p.proyectoNombre}`, avance: Math.round(p.resumen.pct * 100) }))}
+                layout="vertical"
+                margin={{ left: isMobile ? 4 : 20 }}
+              >
                 <CartesianGrid strokeDasharray="3 3" horizontal={false} />
                 <XAxis type="number" domain={[0, 100]} unit="%" fontSize={12} />
-                <YAxis type="category" dataKey="nombre" width={220} fontSize={12} />
+                <YAxis
+                  type="category"
+                  dataKey="nombre"
+                  width={isMobile ? 96 : 220}
+                  fontSize={isMobile ? 10 : 12}
+                  tickFormatter={(valor: string) => (isMobile && valor.length > 14 ? `${valor.slice(0, 13)}…` : valor)}
+                />
                 <Tooltip formatter={(value) => `${value}%`} />
                 <Bar dataKey="avance" fill="var(--adn-blue)" radius={[0, 4, 4, 0]} />
               </BarChart>
@@ -88,32 +107,37 @@ export function Dashboard() {
           </div>
 
           <div style={{ background: '#fff', border: '1px solid var(--adn-ink-200)', borderRadius: 'var(--adn-radius-lg)', overflow: 'hidden' }}>
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: '1.5fr 1fr 100px 140px 160px 32px',
-                padding: '10px 20px',
-                fontSize: 11,
-                fontWeight: 600,
-                color: 'var(--adn-ink-500)',
-                borderBottom: '1px solid var(--adn-ink-100)',
-                textTransform: 'uppercase',
-                letterSpacing: '0.04em',
-              }}
-            >
-              <span>Proyecto</span>
-              <span>Cliente</span>
-              <span>Avance</span>
-              <span>Auditores asignados</span>
-              <span>Rendimiento equipo/día</span>
-              <span />
-            </div>
+            {/* En móvil cada proyecto se ve como tarjeta apilada (ver ProyectoRow),
+                no como fila de este grid — un header de columnas no aplica ahí. */}
+            {!isMobile && (
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '1.5fr 1fr 100px 140px 160px 32px',
+                  padding: '10px 20px',
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: 'var(--adn-ink-500)',
+                  borderBottom: '1px solid var(--adn-ink-100)',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.04em',
+                }}
+              >
+                <span>Proyecto</span>
+                <span>Cliente</span>
+                <span>Avance</span>
+                <span>Auditores asignados</span>
+                <span>Rendimiento equipo/día</span>
+                <span />
+              </div>
+            )}
             {proyectos.map((p) => (
               <ProyectoRow
                 key={p.proyectoId}
                 proyecto={p}
                 expandido={expandido === p.proyectoId}
                 onToggle={() => setExpandido((e) => (e === p.proyectoId ? null : p.proyectoId))}
+                isMobile={isMobile}
               />
             ))}
           </div>
@@ -136,10 +160,12 @@ function ProyectoRow({
   proyecto,
   expandido,
   onToggle,
+  isMobile,
 }: {
   proyecto: ProyectoGerencialOutput;
   expandido: boolean;
   onToggle: () => void;
+  isMobile: boolean;
 }) {
   const auditoresOrdenados = [...proyecto.auditores].sort((a, b) => b.promedioPorDia - a.promedioPorDia);
 
@@ -174,24 +200,46 @@ function ProyectoRow({
 
   return (
     <div style={{ borderTop: '1px solid var(--adn-ink-100)' }}>
-      <div
-        onClick={onToggle}
-        style={{
-          display: 'grid',
-          gridTemplateColumns: '1.5fr 1fr 100px 140px 160px 32px',
-          padding: '12px 20px',
-          fontSize: 13,
-          alignItems: 'center',
-          cursor: 'pointer',
-        }}
-      >
-        <span style={{ fontWeight: 600 }}>{proyecto.proyectoNombre}</span>
-        <span style={{ color: 'var(--adn-ink-500)' }}>{proyecto.clienteNombre}</span>
-        <span style={{ fontWeight: 600, color: 'var(--adn-blue)' }}>{Math.round(proyecto.resumen.pct * 100)}%</span>
-        <span>{proyecto.auditoresAsignados}</span>
-        <span style={{ fontWeight: 600 }}>{proyecto.promedioEquipoPorDia} registros/día</span>
-        {expandido ? <ChevronUp size={16} strokeWidth={1.8} /> : <ChevronDown size={16} strokeWidth={1.8} />}
-      </div>
+      {isMobile ? (
+        // Tarjeta apilada: el grid de 6 columnas de la versión desktop (432px
+        // solo en las columnas de ancho fijo) no cabe en un celular — acá cada
+        // dato va en su propia línea, con etiqueta, en vez de una columna.
+        <div onClick={onToggle} style={{ padding: '12px 20px', fontSize: 13, cursor: 'pointer' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+            <div>
+              <div style={{ fontWeight: 600 }}>{proyecto.proyectoNombre}</div>
+              <div style={{ color: 'var(--adn-ink-500)', fontSize: 12 }}>{proyecto.clienteNombre}</div>
+            </div>
+            {expandido ? <ChevronUp size={16} strokeWidth={1.8} /> : <ChevronDown size={16} strokeWidth={1.8} />}
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 16px', marginTop: 8, fontSize: 12 }}>
+            <span>
+              Avance: <strong style={{ color: 'var(--adn-blue)' }}>{Math.round(proyecto.resumen.pct * 100)}%</strong>
+            </span>
+            <span>Auditores: {proyecto.auditoresAsignados}</span>
+            <span>Equipo/día: {proyecto.promedioEquipoPorDia}</span>
+          </div>
+        </div>
+      ) : (
+        <div
+          onClick={onToggle}
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '1.5fr 1fr 100px 140px 160px 32px',
+            padding: '12px 20px',
+            fontSize: 13,
+            alignItems: 'center',
+            cursor: 'pointer',
+          }}
+        >
+          <span style={{ fontWeight: 600 }}>{proyecto.proyectoNombre}</span>
+          <span style={{ color: 'var(--adn-ink-500)' }}>{proyecto.clienteNombre}</span>
+          <span style={{ fontWeight: 600, color: 'var(--adn-blue)' }}>{Math.round(proyecto.resumen.pct * 100)}%</span>
+          <span>{proyecto.auditoresAsignados}</span>
+          <span style={{ fontWeight: 600 }}>{proyecto.promedioEquipoPorDia} registros/día</span>
+          {expandido ? <ChevronUp size={16} strokeWidth={1.8} /> : <ChevronDown size={16} strokeWidth={1.8} />}
+        </div>
+      )}
 
       {expandido && (
         <div style={{ background: 'var(--adn-ink-50)', padding: '4px 20px 16px' }}>
@@ -200,26 +248,28 @@ function ProyectoRow({
               Todavía no hay auditores asignados a este proyecto.
             </p>
           ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, marginTop: 8 }}>
-              <thead>
-                <tr>
-                  <th style={auditorThStyle}>Auditor</th>
-                  <th style={auditorThStyle}>Registros procesados</th>
-                  <th style={auditorThStyle}>Días activos</th>
-                  <th style={auditorThStyle}>Promedio por día</th>
-                </tr>
-              </thead>
-              <tbody>
-                {auditoresOrdenados.map((a) => (
-                  <tr key={a.auditorId} style={{ borderTop: '1px solid var(--adn-ink-200)' }}>
-                    <td style={auditorTdStyle}>{a.auditorNombre}</td>
-                    <td style={auditorTdStyle}>{a.registros}</td>
-                    <td style={auditorTdStyle}>{a.diasActivos}</td>
-                    <td style={{ ...auditorTdStyle, fontWeight: 600 }}>{a.promedioPorDia}</td>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, marginTop: 8 }}>
+                <thead>
+                  <tr>
+                    <th style={auditorThStyle}>Auditor</th>
+                    <th style={auditorThStyle}>Registros procesados</th>
+                    <th style={auditorThStyle}>Días activos</th>
+                    <th style={auditorThStyle}>Promedio por día</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {auditoresOrdenados.map((a) => (
+                    <tr key={a.auditorId} style={{ borderTop: '1px solid var(--adn-ink-200)' }}>
+                      <td style={auditorTdStyle}>{a.auditorNombre}</td>
+                      <td style={auditorTdStyle}>{a.registros}</td>
+                      <td style={auditorTdStyle}>{a.diasActivos}</td>
+                      <td style={{ ...auditorTdStyle, fontWeight: 600 }}>{a.promedioPorDia}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
           <p style={{ fontSize: 11, color: 'var(--adn-ink-400)', margin: '10px 0 0' }}>
             Promedio por día (de cada auditor) = sus registros procesados ÷ sus días con al menos un registro. El
@@ -228,7 +278,14 @@ function ProyectoRow({
             trabajó (un día en que coincidieron dos auditores cuenta una sola vez).
           </p>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 16 }}>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+              gap: 12,
+              marginTop: 16,
+            }}
+          >
             <div style={chartCardStyle}>
               <h4 style={chartTitleStyle}>Activos procesados por día (equipo)</h4>
               {cargandoDiaria ? (

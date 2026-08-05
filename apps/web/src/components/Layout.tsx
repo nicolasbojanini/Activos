@@ -1,6 +1,6 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { NavLink, useNavigate } from 'react-router';
-import { ClipboardList, Package, FileBarChart, Users, Building2, LayoutDashboard, LogOut } from 'lucide-react';
+import { ClipboardList, Package, FileBarChart, Users, Building2, LayoutDashboard, LogOut, Menu } from 'lucide-react';
 import { useAuthStore } from '../lib/auth-store';
 import { useClienteStore } from '../lib/cliente-store';
 import logoAdnWhite from '../assets/logo-adn-white.png';
@@ -18,6 +18,10 @@ export function Layout({ children }: { children: ReactNode }) {
   const clienteId = useClienteStore((s) => s.clienteId);
   const clientes = useClienteStore((s) => s.clientes);
   const setClienteId = useClienteStore((s) => s.setClienteId);
+  // El sidebar es fijo en desktop; en móvil es un drawer off-canvas (ver
+  // .app-sidebar en index.css) que arranca cerrado y se cierra solo al
+  // navegar, para no taparle la pantalla al usuario en la página nueva.
+  const [menuAbierto, setMenuAbierto] = useState(false);
 
   const handleLogout = () => {
     clear();
@@ -40,16 +44,28 @@ export function Layout({ children }: { children: ReactNode }) {
   ];
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh' }}>
+    <div className="app-shell">
+      <button
+        className="app-hamburger"
+        onClick={() => setMenuAbierto(true)}
+        aria-label="Abrir menú"
+      >
+        <Menu size={20} strokeWidth={2} />
+      </button>
+
+      <div
+        className={`app-sidebar-backdrop${menuAbierto ? ' is-open' : ''}`}
+        onClick={() => setMenuAbierto(false)}
+      />
+
       <aside
+        className={`app-sidebar${menuAbierto ? ' is-open' : ''}`}
         style={{
-          width: 240,
           background: 'var(--adn-black)',
           color: '#fff',
           display: 'flex',
           flexDirection: 'column',
           padding: '24px 16px',
-          flexShrink: 0,
         }}
       >
         <img src={logoAdnWhite} alt="adn" style={{ height: 24, objectFit: 'contain', marginBottom: 20, marginLeft: 8 }} />
@@ -83,6 +99,7 @@ export function Layout({ children }: { children: ReactNode }) {
               <NavLink
                 key={to}
                 to={to}
+                onClick={() => setMenuAbierto(false)}
                 style={({ isActive }) => ({
                   display: 'flex',
                   alignItems: 'center',
@@ -146,7 +163,7 @@ export function Layout({ children }: { children: ReactNode }) {
         </div>
       </aside>
 
-      <main style={{ flex: 1, background: 'var(--adn-ink-50)', padding: 32, overflowY: 'auto' }}>{children}</main>
+      <main className="app-main">{children}</main>
     </div>
   );
 }
