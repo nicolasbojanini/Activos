@@ -10,7 +10,15 @@ import { ControlPrismaService } from '../prisma/control-prisma.service';
 import { TenantClientRegistryService } from '../prisma/tenant-client-registry.service';
 import { ProyectosService } from '../proyectos/proyectos.service';
 
-/** Fila cruda de la query de rendimiento — un total y días activos por auditor. */
+/**
+ * Fila cruda de la query de rendimiento — activos DISTINTOS procesados y
+ * días activos por auditor. "total" son activos, no registros/eventos: si
+ * el mismo activo se reaudita, cuenta una sola vez (COUNT(DISTINCT
+ * "activoId"), no COUNT(*)) — es el mismo criterio que usa el Excel
+ * ("Estado por activo" es una fila por activo, no una por auditoría), así
+ * los dos números siempre coinciden en vez de que el panel muestre más
+ * "actividad" de la que el Excel puede explicar.
+ */
 interface RendimientoRow {
   auditorId: string;
   total: bigint;
@@ -24,7 +32,7 @@ interface RendimientoTotalRow {
 }
 
 function calcularPromedio(total: number, diasActivos: number): number {
-  // Redondeado a 1 decimal — "3.7 registros/día" es más legible que "3.666666...".
+  // Redondeado a 1 decimal — "3.7 activos/día" es más legible que "3.666666...".
   return diasActivos > 0 ? Math.round((total / diasActivos) * 10) / 10 : 0;
 }
 
@@ -86,12 +94,18 @@ export class DashboardService {
         // a todo el historial de RegistroAuditoria del proyecto) — así el
         // total del equipo siempre cuadra con la suma de las filas
         // individuales que se ven en la tabla expandida.
+        //
+        // COUNT(DISTINCT "activoId"), no COUNT(*): un activo reauditado el
+        // mismo día (o cualquier día) cuenta una sola vez, no una por cada
+        // registro — de lo contrario "activos procesados" quedaba más alto
+        // que el total de activos del inventario que aparece en el Excel,
+        // que sí es por-activo.
         const [rendimientoCrudo, rendimientoEquipo] =
           auditorIds.length > 0
             ? await Promise.all([
                 tenantPrisma.$queryRaw<RendimientoRow[]>`
                   SELECT "auditorId",
-                         COUNT(*) as total,
+                         COUNT(DISTINCT "activoId") as total,
                          COUNT(DISTINCT (("auditadoEn" - INTERVAL '5 hours')::date)) as "diasActivos"
                   FROM "RegistroAuditoria"
                   WHERE "proyectoId" = ${proyecto.id} AND "auditorId" IN (${Prisma.join(auditorIds)})
@@ -102,9 +116,11 @@ export class DashboardService {
                 // día activo, no dos — es lo que pide un promedio ponderado
                 // "como si todos los auditores fueran uno solo", en vez de
                 // sumar los días activos de cada uno (que sí duplicaría los
-                // días en que coincidieron).
+                // días en que coincidieron). Igual con los activos: si dos
+                // auditores tocaron el mismo activo, el equipo procesó uno,
+                // no dos.
                 tenantPrisma.$queryRaw<RendimientoTotalRow[]>`
-                  SELECT COUNT(*) as total,
+                  SELECT COUNT(DISTINCT "activoId") as total,
                          COUNT(DISTINCT (("auditadoEn" - INTERVAL '5 hours')::date)) as "diasActivos"
                   FROM "RegistroAuditoria"
                   WHERE "proyectoId" = ${proyecto.id} AND "auditorId" IN (${Prisma.join(auditorIds)})
@@ -120,14 +136,14 @@ export class DashboardService {
           .filter((a) => a.usuario.rol === 'AUDITOR')
           .map((a) => {
             const fila = rendimientoPorAuditor.get(a.usuario.id);
-            const registros = fila ? Number(fila.total) : 0;
+            const activosProcesados = fila ? Number(fila.total) : 0;
             const diasActivos = fila ? Number(fila.diasActivos) : 0;
             return {
               auditorId: a.usuario.id,
               auditorNombre: a.usuario.nombre,
-              registros,
+              activosProcesados,
               diasActivos,
-              promedioPorDia: calcularPromedio(registros, diasActivos),
+              promedioPorDia: calcularPromedio(activosProcesados, diasActivos),
             };
           });
 
@@ -153,12 +169,19 @@ export class DashboardService {
   }
 
   /**
-   * Histograma diario del proyecto: registros de TODO el equipo por día
-   * (hora de Bogotá), sin filtrar por quién está asignado hoy — a
-   * diferencia de promedioEquipoPorDia, esto es una vista histórica: si un
-   * auditor trabajó dos semanas y lo reasignaron después, esas dos semanas
-   * de trabajo real no deben desaparecer del gráfico de los días en que
-   * ocurrieron.
+   * Histograma diario del proyecto: activos DISTINTOS de TODO el equipo con
+   * al menos un registro ese día (hora de Bogotá), sin filtrar por quién
+   * está asignado hoy — a diferencia de promedioEquipoPorDia, esto es una
+   * vista histórica: si un auditor trabajó dos semanas y lo reasignaron
+   * después, esas dos semanas de trabajo real no deben desaparecer del
+   * gráfico de los días en que ocurrieron.
+   *
+   * COUNT(DISTINCT "activoId"), no COUNT(*): si un activo se reaudita el
+   * mismo día, cuenta una sola vez — mismo criterio que el Excel ("Estado
+   * por activo" es una fila por activo). Un activo cuenta en el día en que
+   * REALMENTE se tocó, aunque después se reaudite otro día — el histograma
+   * es un registro histórico, no debe moverse retroactivamente si el activo
+   * se vuelve a auditar más adelante.
    *
    * Rellena con total:0 los días sin actividad DENTRO del rango que sí
    * tiene datos (generate_series), para que el histograma muestre huecos
@@ -186,7 +209,7 @@ export class DashboardService {
         WHERE min_dia IS NOT NULL
       ),
       conteo AS (
-        SELECT (("auditadoEn" - INTERVAL '5 hours')::date) AS dia, COUNT(*) AS total
+        SELECT (("auditadoEn" - INTERVAL '5 hours')::date) AS dia, COUNT(DISTINCT "activoId") AS total
         FROM "RegistroAuditoria"
         WHERE "proyectoId" = ${proyectoId}
         GROUP BY dia
@@ -202,9 +225,11 @@ export class DashboardService {
   /**
    * Histograma horario de UN día del proyecto (todo el equipo), franjas de
    * 1 hora en hora de Bogotá — igual criterio "sin filtrar por asignación
-   * actual" que obtenerActividadDiaria. Devuelve las 24 franjas siempre
-   * (con total:0 donde no hubo captura) para que el gráfico tenga el mismo
-   * eje X sin importar qué día se elija.
+   * actual" y "activos distintos, no registros" que obtenerActividadDiaria.
+   * Si un activo se reaudita más de una vez dentro de la misma hora, cuenta
+   * una sola vez. Devuelve las 24 franjas siempre (con total:0 donde no hubo
+   * captura) para que el gráfico tenga el mismo eje X sin importar qué día
+   * se elija.
    */
   async obtenerActividadHoraria(
     clienteId: string,
@@ -217,7 +242,7 @@ export class DashboardService {
     >`
       SELECT
         EXTRACT(HOUR FROM ("auditadoEn" - INTERVAL '5 hours'))::int AS hora,
-        COUNT(*)::int AS total
+        COUNT(DISTINCT "activoId")::int AS total
       FROM "RegistroAuditoria"
       WHERE "proyectoId" = ${proyectoId}
         AND (("auditadoEn" - INTERVAL '5 hours')::date) = ${dia}::date

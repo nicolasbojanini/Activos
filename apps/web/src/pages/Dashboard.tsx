@@ -236,7 +236,7 @@ function ProyectoRow({
           <span style={{ color: 'var(--adn-ink-500)' }}>{proyecto.clienteNombre}</span>
           <span style={{ fontWeight: 600, color: 'var(--adn-blue)' }}>{Math.round(proyecto.resumen.pct * 100)}%</span>
           <span>{proyecto.auditoresAsignados}</span>
-          <span style={{ fontWeight: 600 }}>{proyecto.promedioEquipoPorDia} registros/día</span>
+          <span style={{ fontWeight: 600 }}>{proyecto.promedioEquipoPorDia} activos/día</span>
           {expandido ? <ChevronUp size={16} strokeWidth={1.8} /> : <ChevronDown size={16} strokeWidth={1.8} />}
         </div>
       )}
@@ -253,7 +253,7 @@ function ProyectoRow({
                 <thead>
                   <tr>
                     <th style={auditorThStyle}>Auditor</th>
-                    <th style={auditorThStyle}>Registros procesados</th>
+                    <th style={auditorThStyle}>Activos procesados</th>
                     <th style={auditorThStyle}>Días activos</th>
                     <th style={auditorThStyle}>Promedio por día</th>
                   </tr>
@@ -262,7 +262,7 @@ function ProyectoRow({
                   {auditoresOrdenados.map((a) => (
                     <tr key={a.auditorId} style={{ borderTop: '1px solid var(--adn-ink-200)' }}>
                       <td style={auditorTdStyle}>{a.auditorNombre}</td>
-                      <td style={auditorTdStyle}>{a.registros}</td>
+                      <td style={auditorTdStyle}>{a.activosProcesados}</td>
                       <td style={auditorTdStyle}>{a.diasActivos}</td>
                       <td style={{ ...auditorTdStyle, fontWeight: 600 }}>{a.promedioPorDia}</td>
                     </tr>
@@ -272,10 +272,11 @@ function ProyectoRow({
             </div>
           )}
           <p style={{ fontSize: 11, color: 'var(--adn-ink-400)', margin: '10px 0 0' }}>
-            Promedio por día (de cada auditor) = sus registros procesados ÷ sus días con al menos un registro. El
-            "Rendimiento equipo/día" de la fila comprimida no es el promedio de estos valores — es el equipo entero
-            tratado como un solo auditor: total de registros de todos ÷ días distintos en que cualquiera del equipo
-            trabajó (un día en que coincidieron dos auditores cuenta una sola vez).
+            Promedio por día (de cada auditor) = sus activos distintos procesados ÷ sus días con al menos un
+            registro (si un activo se reaudita, cuenta una sola vez). El "Rendimiento equipo/día" de la fila
+            comprimida no es el promedio de estos valores — es el equipo entero tratado como un solo auditor: total
+            de activos distintos de todos ÷ días distintos en que cualquiera del equipo trabajó (un día en que
+            coincidieron dos auditores, o un activo reauditado, cuenta una sola vez).
           </p>
 
           <div
@@ -298,7 +299,7 @@ function ProyectoRow({
                     <CartesianGrid strokeDasharray="3 3" vertical={false} />
                     <XAxis dataKey="etiqueta" fontSize={10} />
                     <YAxis allowDecimals={false} fontSize={10} width={28} />
-                    <Tooltip labelFormatter={(etiqueta) => `Día ${etiqueta}`} formatter={(v) => [v, 'Registros']} />
+                    <Tooltip labelFormatter={(etiqueta) => `Día ${etiqueta}`} formatter={(v) => [v, 'Activos']} />
                     <Bar dataKey="total" fill="var(--adn-blue)" radius={[3, 3, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
@@ -332,7 +333,7 @@ function ProyectoRow({
                     <CartesianGrid strokeDasharray="3 3" vertical={false} />
                     <XAxis dataKey="etiqueta" fontSize={9} interval={1} />
                     <YAxis allowDecimals={false} fontSize={10} width={28} />
-                    <Tooltip labelFormatter={(etiqueta) => `${etiqueta} h`} formatter={(v) => [v, 'Registros']} />
+                    <Tooltip labelFormatter={(etiqueta) => `${etiqueta} h`} formatter={(v) => [v, 'Activos']} />
                     <Bar dataKey="total" fill="var(--adn-blue)" radius={[3, 3, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
