@@ -246,6 +246,18 @@ export function InicioScreen({ navigation }: Props) {
 
   const totalRevisados = resumen ? resumen.total - resumen.pendientes : 0;
 
+  // El lector de mano escribe el código directo en el buscador — si ninguno de
+  // los resultados coincide EXACTO con lo escrito (aunque haya coincidencias
+  // parciales, como "MZ 00021" trayendo "DMA 01157" por compartir texto), se
+  // ofrece crear el activo. Antes solo se ofrecía con la lista totalmente
+  // vacía, así que un código real pero no existente que traía coincidencias
+  // aproximadas dejaba al auditor sin forma de darlo de alta desde acá.
+  const qNormalizado = qDebounced.trim().toLowerCase();
+  const hayCoincidenciaExacta = (activos ?? []).some(
+    (a) => a.codigoAnterior.toLowerCase() === qNormalizado || a.codigoNuevo.toLowerCase() === qNormalizado,
+  );
+  const mostrarCrearActivo = qNormalizado.length > 0 && !activosLoading && !hayCoincidenciaExacta;
+
   const abrirDetalle = useCallback(
     (activoId: string) => navigation.navigate('Detalle', { activoId }),
     [navigation],
@@ -399,22 +411,19 @@ export function InicioScreen({ navigation }: Props) {
           activosLoading ? (
             <Text style={styles.empty}>Cargando…</Text>
           ) : (
-            <View>
-              <Text style={styles.empty}>No hay activos que coincidan con la búsqueda.</Text>
-              {/* El lector de mano escribe el código directo en el buscador (sin
-                  pasar por la cámara) — si no existe, se ofrece darlo de alta acá
-                  mismo en vez de mandar al auditor a buscar otra pantalla. */}
-              {qDebounced.trim().length > 0 && (
-                <Pressable
-                  style={styles.crearActivoBtn}
-                  onPress={() => navigation.navigate('NoRegistrado', { codigo: qDebounced.trim() })}
-                >
-                  <PlusCircle size={16} color={colors.brand.blue} strokeWidth={1.8} />
-                  <Text style={styles.crearActivoLabel}>Crear activo con código «{qDebounced.trim()}»</Text>
-                </Pressable>
-              )}
-            </View>
+            <Text style={styles.empty}>No hay activos que coincidan con la búsqueda.</Text>
           )
+        }
+        ListFooterComponent={
+          mostrarCrearActivo ? (
+            <Pressable
+              style={styles.crearActivoBtn}
+              onPress={() => navigation.navigate('NoRegistrado', { codigo: qDebounced.trim() })}
+            >
+              <PlusCircle size={16} color={colors.brand.blue} strokeWidth={1.8} />
+              <Text style={styles.crearActivoLabel}>Crear activo con código «{qDebounced.trim()}»</Text>
+            </Pressable>
+          ) : null
         }
       />
 

@@ -229,6 +229,7 @@ async function ultimaPendientePorActivo(activoId: string) {
 export interface ActivoLocalConEstado {
   id: string;
   codigoAnterior: string;
+  codigoNuevo: string;
   nombre: string;
   categoria: string;
   ubicacionSede: string | null;
@@ -281,6 +282,7 @@ export async function listarActivosLocal(q?: string): Promise<ActivoLocalConEsta
     return {
       id: a.id,
       codigoAnterior: a.codigoAnterior,
+      codigoNuevo: a.codigoNuevo ?? '',
       nombre: a.nombre,
       categoria: a.categoria,
       ubicacionSede: a.ubicacionSede,
