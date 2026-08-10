@@ -4,8 +4,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
-  CAMPO_IDENTIDAD,
   CAMPOS_ACTIVO_CATALOGO,
+  CAMPOS_BLOQUEADOS,
   type ActualizarCampoPersonalizadoInput,
   type ActualizarCampoUbicacionInput,
   type ActualizarConfiguracionCamposInput,
@@ -21,11 +21,12 @@ export class ConfiguracionCamposService {
 
   /**
    * Combina el catálogo fijo con los overrides guardados del cliente (si los
-   * hay). El campo identidad ignora cualquier override guardado — siempre
-   * visible/obligatorio — por si quedó una fila vieja de antes de que ese
-   * campo fuera la identidad (`actualizar()` ya rechaza escribir una fila así
-   * hacia adelante, pero esto blinda también la lectura de una que haya
-   * quedado de antes).
+   * hay). Los campos bloqueados (ver CAMPOS_BLOQUEADOS) ignoran cualquier
+   * override guardado — siempre visible/obligatorio — por si quedó una fila
+   * vieja de antes de que el campo se bloqueara (`actualizar()` ya rechaza
+   * escribir una fila así hacia adelante, pero esto blinda también la
+   * lectura de una que haya quedado de antes, que es justo lo que le pasó a
+   * Decameron con "ubicacion").
    */
   async obtenerCampos(clienteId: string) {
     const guardados = await this.control.configuracionCampo.findMany({
@@ -34,7 +35,7 @@ export class ConfiguracionCamposService {
     const guardadosPorCampo = new Map(guardados.map((g) => [g.campo, g]));
 
     return CAMPOS_ACTIVO_CATALOGO.map((catalogo) => {
-      if (catalogo.campo === CAMPO_IDENTIDAD) {
+      if (CAMPOS_BLOQUEADOS.includes(catalogo.campo)) {
         return {
           campo: catalogo.campo,
           etiqueta: catalogo.etiqueta,
@@ -111,11 +112,11 @@ export class ConfiguracionCamposService {
 
     for (const item of dto.campos) {
       if (
-        item.campo === CAMPO_IDENTIDAD &&
+        CAMPOS_BLOQUEADOS.includes(item.campo) &&
         (!item.visible || !item.requerido)
       ) {
         throw new BadRequestException(
-          `El campo "${CAMPO_IDENTIDAD}" es el identificador único del activo — no se puede ocultar ni volver opcional`,
+          `El campo "${item.campo}" no se puede ocultar ni volver opcional`,
         );
       }
       const catalogo = CAMPOS_ACTIVO_CATALOGO.find(

@@ -44,6 +44,18 @@ export type CampoActivoKey = (typeof CAMPOS_ACTIVO_CATALOGO)[number]['campo'];
 export const CAMPO_IDENTIDAD: CampoActivoKey = 'codigoAnterior';
 
 /**
+ * Campos que ignoran cualquier configuración guardada del cliente y quedan
+ * siempre visible+obligatorio: codigoAnterior (identificador único) y
+ * ubicacion (la sección "Campos de ubicación" de ConfigurarCampos.tsx
+ * promete que el campo base "siempre está" — si se pudiera ocultar desde
+ * esta tabla de campos estándar, esa promesa quedaba rota sin que esa
+ * sección se enterara, como pasó con Decameron). Tipado `string[]` (no
+ * `CampoActivoKey[]`) por el mismo motivo que CAMPOS_CON_SUGERENCIAS_ELEGIBLES:
+ * se compara contra el `campo: string` que ya viaja por la API/schemas.
+ */
+export const CAMPOS_BLOQUEADOS: string[] = [CAMPO_IDENTIDAD, 'ubicacion'];
+
+/**
  * Claves del catálogo que admiten activar sugerencias dinámicas — ver
  * `permiteSugerencias` arriba. Tipado como `string[]` (no `CampoActivoKey[]`)
  * a propósito: se usa para comparar contra el `campo: string` que ya viaja

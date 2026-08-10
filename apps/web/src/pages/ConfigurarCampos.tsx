@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronLeft, Trash2 } from 'lucide-react';
-import { CAMPO_IDENTIDAD, CAMPOS_CON_SUGERENCIAS_ELEGIBLES, type ConfiguracionCampoOutput } from '@adn/shared';
+import { CAMPO_IDENTIDAD, CAMPOS_BLOQUEADOS, CAMPOS_CON_SUGERENCIAS_ELEGIBLES, type ConfiguracionCampoOutput } from '@adn/shared';
 import { Layout } from '../components/Layout';
 import { useAuthStore } from '../lib/auth-store';
 import { ApiError } from '../lib/api';
@@ -138,7 +138,7 @@ export function ConfigurarCampos() {
     setCampos((prev) =>
       prev?.map((c) => {
         if (c.campo !== campo) return c;
-        if (campo === CAMPO_IDENTIDAD) return c; // codigoAnterior no se puede ocultar ni volver opcional
+        if (CAMPOS_BLOQUEADOS.includes(campo)) return c; // codigoAnterior y ubicacion no se pueden ocultar ni volver opcionales
         const siguiente = { ...c, [key]: !c[key] };
         // si se oculta, no tiene sentido dejarlo marcado como obligatorio ni con sugerencias
         if (key === 'visible' && !siguiente.visible) {
@@ -164,7 +164,8 @@ export function ConfigurarCampos() {
           Elige qué campos se muestran al importar/auditar, cuáles son obligatorios y cuáles ofrecen sugerencias
           dinámicas (autocompletar con lo que ya escribieron otros auditores en ese mismo campo, dentro de un mismo
           proyecto — útil para evitar variantes como "negro"/"negra"). Aplica a todos los inventarios de este
-          cliente. "{CAMPO_IDENTIDAD}" es el identificador único del activo y no se puede ocultar ni volver opcional.
+          cliente. "{CAMPO_IDENTIDAD}" es el identificador único del activo y "ubicacion" es el campo base de la
+          ubicación activa — ninguno de los dos se puede ocultar ni volver opcional.
         </p>
       </header>
 
@@ -188,7 +189,7 @@ export function ConfigurarCampos() {
               <span>Sugerencias</span>
             </div>
             {campos.map((campo) => {
-              const bloqueado = campo.campo === CAMPO_IDENTIDAD;
+              const bloqueado = CAMPOS_BLOQUEADOS.includes(campo.campo);
               const elegibleSugerencias = CAMPOS_CON_SUGERENCIAS_ELEGIBLES.includes(campo.campo);
               return (
                 <div
