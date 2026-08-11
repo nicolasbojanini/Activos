@@ -2,12 +2,17 @@ import { useCallback, useState } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import * as XLSX from 'xlsx';
-import { UploadCloud, FileSpreadsheet, CheckCircle2, AlertTriangle } from 'lucide-react';
-import { CAMPO_IDENTIDAD, type ImportCommitOutput, type ImportPreviewOutput } from '@adn/shared';
+import { UploadCloud, FileSpreadsheet, CheckCircle2, AlertTriangle, Smartphone } from 'lucide-react';
+import {
+  CAMPO_IDENTIDAD,
+  type ImportarPendientesResultadoOutput,
+  type ImportCommitOutput,
+  type ImportPreviewOutput,
+} from '@adn/shared';
 import { Layout } from '../components/Layout';
 import { useAuthStore } from '../lib/auth-store';
 import { useClienteStore } from '../lib/cliente-store';
-import { commitImport, getConfiguracionCampos, previewImport } from '../lib/services';
+import { commitImport, getConfiguracionCampos, importarPendientes, previewImport } from '../lib/services';
 import { ApiError } from '../lib/api';
 
 type Paso = 'cargar' | 'elegir-hoja' | 'mapeo' | 'resultado';
@@ -51,6 +56,13 @@ export function Importar() {
   const [preview, setPreview] = useState<ImportPreviewOutput | null>(null);
   const [mapeo, setMapeo] = useState<Record<string, string | null>>({});
   const [resultado, setResultado] = useState<ImportCommitOutput | null>(null);
+
+  const [archivoPendientes, setArchivoPendientes] = useState<File | null>(null);
+  const [resultadoPendientes, setResultadoPendientes] = useState<ImportarPendientesResultadoOutput | null>(null);
+  const pendientesMutation = useMutation({
+    mutationFn: (file: File) => importarPendientes(file),
+    onSuccess: (data) => setResultadoPendientes(data),
+  });
 
   const previewMutation = useMutation({
     mutationFn: async ({ file, hoja }: { file: File; hoja: string }) => {
@@ -121,6 +133,74 @@ export function Importar() {
         <p className="eyebrow">AU/ IMPORTAR</p>
         <h1 style={{ fontSize: 24 }}>Importar base de datos de activos</h1>
       </header>
+
+      <div
+        style={{
+          background: '#fff',
+          border: '1px solid var(--adn-ink-200)',
+          borderRadius: 'var(--adn-radius-lg)',
+          padding: 20,
+          marginBottom: 32,
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+          <Smartphone size={18} strokeWidth={1.8} color="var(--adn-blue)" />
+          <h3 style={{ fontSize: 15 }}>Importar pendientes de un dispositivo sin señal</h3>
+        </div>
+        <p style={{ fontSize: 12, color: 'var(--adn-ink-500)', marginBottom: 16 }}>
+          Cuando un auditor no tiene señal en absoluto, la app le permite exportar su cola de cambios sin sincronizar
+          a un .xlsx (botón "Exportar pendientes" en la pantalla de inicio). Subilo acá para aplicarlo directamente —
+          las fotos no viajan en este archivo, se completan solas cuando el celular recupere señal.
+        </p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <input
+            type="file"
+            accept=".xlsx"
+            onChange={(e) => {
+              setResultadoPendientes(null);
+              setArchivoPendientes(e.target.files?.[0] ?? null);
+            }}
+            style={{ fontSize: 13 }}
+          />
+          <button
+            onClick={() => archivoPendientes && pendientesMutation.mutate(archivoPendientes)}
+            disabled={!archivoPendientes || pendientesMutation.isPending}
+            style={{
+              ...primaryButtonStyle,
+              opacity: !archivoPendientes || pendientesMutation.isPending ? 0.6 : 1,
+            }}
+          >
+            {pendientesMutation.isPending ? 'Importando…' : 'Importar'}
+          </button>
+        </div>
+
+        {pendientesMutation.isError && (
+          <p style={{ fontSize: 12, color: 'var(--adn-danger)', marginTop: 12 }}>
+            {pendientesMutation.error instanceof ApiError
+              ? pendientesMutation.error.message
+              : 'No se pudo importar el archivo'}
+          </p>
+        )}
+
+        {resultadoPendientes && (
+          <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--adn-ink-100)' }}>
+            <p style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>
+              {resultadoPendientes.importados} de {resultadoPendientes.total} registros importados
+              {resultadoPendientes.errores.length > 0 && ` · ${resultadoPendientes.errores.length} con error`}
+            </p>
+            {resultadoPendientes.errores.length > 0 && (
+              <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: 'var(--adn-danger)' }}>
+                {resultadoPendientes.errores.slice(0, 10).map((err, i) => (
+                  <li key={i}>
+                    Fila {err.fila}
+                    {err.codigo ? ` (${err.codigo})` : ''} · {err.mensaje}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+      </div>
 
       {paso === 'cargar' && (
         <div

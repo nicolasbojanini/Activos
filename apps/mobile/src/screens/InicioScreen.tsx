@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ChevronRight, CloudOff, MapPin, PlusCircle, RefreshCw, Search } from 'lucide-react-native';
+import { ChevronRight, CloudOff, MapPin, PlusCircle, RefreshCw, Search, Share2 } from 'lucide-react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { colors, radius, spacing } from '@adn/ui-tokens';
 import type { CategoriaActivo, ProyectoOutput } from '@adn/shared';
@@ -36,6 +36,7 @@ import {
   type ActivoLocalConEstado,
 } from '../db/sync';
 import { sincronizarPendientes } from '../lib/registro-offline';
+import { exportarPendientes } from '../lib/exportar-pendientes';
 import { useConectividad } from '../lib/useConectividad';
 import { CLAVE_SUGERENCIAS } from '../lib/useSugerencias';
 import type { RootStackParamList } from '../navigation/types';
@@ -92,6 +93,7 @@ export function InicioScreen({ navigation }: Props) {
   const [q, setQ] = useState('');
   const [qDebounced, setQDebounced] = useState('');
   const [sincronizando, setSincronizando] = useState(false);
+  const [exportando, setExportando] = useState(false);
   const [errorSesion, setErrorSesion] = useState<string | null>(null);
   const [descargando, setDescargando] = useState(false);
   const [refrescando, setRefrescando] = useState(false);
@@ -120,6 +122,25 @@ export function InicioScreen({ navigation }: Props) {
       invalidarLocal();
     } finally {
       setSincronizando(false);
+    }
+  };
+
+  // Fallback para sitios sin señal en absoluto: exporta la cola pendiente a
+  // un .xlsx para transportar a mano a una PC con red. No toca la cola local
+  // ni la marca como sincronizada — sigue intentando sincronizar normal en
+  // cuanto haya señal, sin riesgo de duplicar nada (crearRegistro es
+  // idempotente por clientId).
+  const ejecutarExportacion = async () => {
+    setExportando(true);
+    try {
+      const resultado = await exportarPendientes();
+      if (!resultado) {
+        Alert.alert('Nada que exportar', 'No hay cambios pendientes de sincronizar.');
+      }
+    } catch {
+      Alert.alert('No se pudo exportar', 'Intenta de nuevo.');
+    } finally {
+      setExportando(false);
     }
   };
 
@@ -364,18 +385,32 @@ export function InicioScreen({ navigation }: Props) {
                 </Text>
               </View>
               {pendientesSync > 0 && (
-                <Pressable
-                  onPress={() => void ejecutarSincronizacion()}
-                  style={styles.syncButton}
-                  disabled={sincronizando}
-                >
-                  {sincronizando ? (
-                    <ActivityIndicator size="small" color={colors.brand.blue} />
-                  ) : (
-                    <RefreshCw size={14} color={colors.brand.blue} />
-                  )}
-                  <Text style={styles.syncButtonLabel}>Sincronizar ahora</Text>
-                </Pressable>
+                <View style={{ flexDirection: 'row', gap: spacing[3] }}>
+                  <Pressable
+                    onPress={() => void ejecutarSincronizacion()}
+                    style={styles.syncButton}
+                    disabled={sincronizando}
+                  >
+                    {sincronizando ? (
+                      <ActivityIndicator size="small" color={colors.brand.blue} />
+                    ) : (
+                      <RefreshCw size={14} color={colors.brand.blue} />
+                    )}
+                    <Text style={styles.syncButtonLabel}>Sincronizar ahora</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => void ejecutarExportacion()}
+                    style={styles.syncButton}
+                    disabled={exportando}
+                  >
+                    {exportando ? (
+                      <ActivityIndicator size="small" color={colors.brand.blue} />
+                    ) : (
+                      <Share2 size={14} color={colors.brand.blue} />
+                    )}
+                    <Text style={styles.syncButtonLabel}>Exportar pendientes</Text>
+                  </Pressable>
+                </View>
               )}
             </View>
 
@@ -485,8 +520,10 @@ const styles = StyleSheet.create({
   avanceDetalle: { color: 'rgba(255,255,255,0.75)', fontSize: 12 },
   syncBar: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'center',
     justifyContent: 'space-between',
+    gap: spacing[2],
     paddingHorizontal: spacing[4],
     marginTop: spacing[3],
     marginBottom: spacing[2],

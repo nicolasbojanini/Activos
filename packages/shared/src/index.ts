@@ -8,4 +8,5 @@ export * from './schemas/auth';
 export * from './schemas/imports';
 export * from './schemas/reportes';
 export * from './schemas/dashboard';
+export * from './importar-pendientes';
 export * from './types';

@@ -3,10 +3,16 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import type {
-  CategoriaActivo,
-  ConfirmarFotosInput,
-  RegistroAuditoriaInput,
+import * as XLSX from 'xlsx';
+import { ZodError } from 'zod';
+import {
+  COLUMNAS_EXPORT_PENDIENTES,
+  registroAuditoriaInputSchema,
+  type CategoriaActivo,
+  type ConfirmarFotosInput,
+  type ImportarPendientesFilaError,
+  type ImportarPendientesResultadoOutput,
+  type RegistroAuditoriaInput,
 } from '@adn/shared';
 import { Prisma } from '../../generated/tenant-client';
 import type {
@@ -202,6 +208,109 @@ export class RegistrosService {
     );
 
     return { registro, uploads };
+  }
+
+  /**
+   * Reconstruye un RegistroAuditoriaInput a partir de una fila del .xlsx que
+   * exporta la app móvil (ver COLUMNAS_EXPORT_PENDIENTES en @adn/shared) y lo
+   * valida con el mismo schema que usa el endpoint normal — así una fila mal
+   * formada (o editada a mano por error) falla con el mismo mensaje que
+   * daría la API, en vez de un error críptico de Prisma más abajo.
+   */
+  private filaAInput(fila: Record<string, unknown>): RegistroAuditoriaInput {
+    const c = COLUMNAS_EXPORT_PENDIENTES;
+    // Explícito por celda (no String(v) directo sobre `unknown`): así una
+    // celda con un tipo inesperado (un objeto, por ejemplo) revienta acá con
+    // un mensaje claro en vez de colarse como "[object Object]".
+    const texto = (v: unknown): string | null => {
+      if (v === undefined || v === null || v === '') return null;
+      if (typeof v === 'string') return v;
+      if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+      if (v instanceof Date) return v.toISOString();
+      throw new Error('Valor de celda con un tipo inesperado');
+    };
+    const numero = (v: unknown): number | null => {
+      const t = texto(v);
+      return t === null ? null : Number(t);
+    };
+    const json = (v: unknown): unknown => {
+      const t = texto(v);
+      return t === null ? null : JSON.parse(t);
+    };
+
+    return registroAuditoriaInputSchema.parse({
+      clientId: texto(fila[c.clientId]),
+      proyectoId: texto(fila[c.proyectoId]),
+      activoId: texto(fila[c.activoId]),
+      estado: texto(fila[c.estado]),
+      estadoFisico: texto(fila[c.estadoFisico]),
+      cambios: json(fila[c.cambiosJson]),
+      nota: texto(fila[c.nota]),
+      lat: numero(fila[c.lat]),
+      lng: numero(fila[c.lng]),
+      auditadoEn: texto(fila[c.auditadoEn]),
+      fotos: json(fila[c.fotosJson]) ?? [],
+    });
+  }
+
+  /**
+   * Fallback para sitios sin señal: aplica fila por fila el .xlsx que exportó
+   * la app móvil con su cola pendiente (ver exportarPendientes en mobile),
+   * reusando `crear()` tal cual — mismas reglas, misma idempotencia por
+   * clientId. Las fotos no viajan en el Excel (solo su metadata, ya
+   * incluida en `cambios`/`fotos` de cada fila) — los binarios se completan
+   * solos cuando el dispositivo recupere señal y reintente su sincronización
+   * normal contra el mismo clientId.
+   *
+   * No aborta el lote entero por una fila mala: cada fila se intenta de
+   * forma independiente y los errores se acumulan, para poder importar el
+   * resto aunque una quede mal formada.
+   */
+  async importarPendientes(
+    tenantPrisma: TenantPrismaClient,
+    buffer: Buffer,
+  ): Promise<ImportarPendientesResultadoOutput> {
+    const libro = XLSX.read(buffer, { type: 'buffer' });
+    const hoja = libro.Sheets[libro.SheetNames[0]];
+    if (!hoja) {
+      throw new BadRequestException('El archivo no tiene ninguna hoja');
+    }
+    const filas = XLSX.utils.sheet_to_json<Record<string, unknown>>(hoja);
+
+    const errores: ImportarPendientesFilaError[] = [];
+    let importados = 0;
+
+    for (let i = 0; i < filas.length; i++) {
+      const fila = filas[i];
+      const codigo =
+        (fila[COLUMNAS_EXPORT_PENDIENTES.codigo] as string | undefined) ?? null;
+      const auditorId =
+        (fila[COLUMNAS_EXPORT_PENDIENTES.auditorId] as string | undefined) ??
+        '';
+      try {
+        if (!auditorId) {
+          throw new Error(
+            `Falta "${COLUMNAS_EXPORT_PENDIENTES.auditorId}" en la fila`,
+          );
+        }
+        const dto = this.filaAInput(fila);
+        await this.crear(tenantPrisma, auditorId, dto);
+        importados++;
+      } catch (err) {
+        errores.push({
+          fila: i + 2, // +1 porque i es 0-based, +1 más por la fila de encabezado
+          codigo,
+          mensaje:
+            err instanceof ZodError
+              ? err.issues.map((e) => e.message).join('; ')
+              : err instanceof Error
+                ? err.message
+                : 'Error desconocido',
+        });
+      }
+    }
+
+    return { total: filas.length, importados, errores };
   }
 
   /** Confirma que las fotos ya se subieron a S3 y completa sus metadatos (ancho/alto/bytes). */

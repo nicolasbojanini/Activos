@@ -18,6 +18,7 @@ import type {
   CrearClienteInput,
   CrearProyectoInput,
   CrearUsuarioInput,
+  ImportarPendientesResultadoOutput,
   ImportCommitInput,
   ImportCommitOutput,
   ImportPreviewOutput,
@@ -231,6 +232,17 @@ export function previewImport(file: File, hoja?: string) {
   form.append('archivo', file);
   if (hoja) form.append('hoja', hoja);
   return apiFetch<ImportPreviewOutput>(`/clientes/${clienteId()}/imports/preview`, {
+    method: 'POST',
+    body: form,
+    isFormData: true,
+  });
+}
+
+/** El .xlsx que exportó la app móvil con su cola offline sin sincronizar (ver exportarPendientes en mobile). */
+export function importarPendientes(file: File) {
+  const form = new FormData();
+  form.append('archivo', file);
+  return apiFetch<ImportarPendientesResultadoOutput>(`/clientes/${clienteId()}/registros/importar-pendientes`, {
     method: 'POST',
     body: form,
     isFormData: true,
