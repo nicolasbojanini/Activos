@@ -90,10 +90,13 @@ export async function exportarPendientes(): Promise<ResultadoExportarPendientes 
 
   // Las fotos NO van dentro del Excel (son binarios) ni se suben a ningún
   // lado — es un respaldo aparte, solo para que el coordinador pueda revisar
-  // a mano lo que capturó cada auditor mientras estuvo sin señal. Una
-  // carpeta por activo (código + últimos 6 del clientId, por si el mismo
-  // código quedó auditado dos veces en la cola) con sus fotos adentro,
-  // nombradas por orden/etiqueta para reconocerlas de un vistazo.
+  // a mano lo que capturó cada auditor mientras estuvo sin señal. Mismo
+  // esquema de nombre que la descarga del portal y el respaldo permanente
+  // (`{código}-{slot}.jpg`, slot = orden+1), para reconocer la misma foto en
+  // los tres lados. Si el mismo activo aparece dos veces en la cola pendiente
+  // (reprocesado sin haber sincronizado la primera vez), el nombre se repite
+  // adrede — la fecha de captura real queda como metadata del archivo dentro
+  // del zip para distinguir cuál es la más reciente.
   //
   // Se cuenta aparte lo REFERENCIADO (lo que la cola dice que existe) contra
   // lo ENCONTRADO (lo que de verdad se pudo leer del celular): antes, si UNA
@@ -111,21 +114,21 @@ export async function exportarPendientes(): Promise<ResultadoExportarPendientes 
   for (const p of pendientes) {
     const fotos = JSON.parse(p.fotosJson) as FotoInput[];
     if (fotos.length === 0) continue;
-    const carpeta = `${sanear(p.codigoAnteriorSnapshot ?? 'sin-codigo')}-${p.clientId.slice(-6)}`;
+    const fechaCaptura = new Date(p.auditadoEn);
     for (const foto of fotos) {
       fotosReferenciadas++;
-      const etiquetaArchivo = `${carpeta}/${foto.orden}_${sanear(foto.etiqueta ?? 'foto')}.jpg`;
+      const nombreArchivo = `${sanear(p.codigoAnteriorSnapshot ?? 'sin-codigo')}-${foto.orden + 1}.jpg`;
       try {
         const local = archivoLocalFoto(foto.clientPhotoId);
         if (!local.exists) {
-          faltantes.push(`${etiquetaArchivo} — no se encontró en el celular (clientPhotoId: ${foto.clientPhotoId})`);
+          faltantes.push(`${nombreArchivo} — no se encontró en el celular (clientPhotoId: ${foto.clientPhotoId})`);
           continue;
         }
-        zip.file(etiquetaArchivo, await local.bytes());
+        zip.file(nombreArchivo, await local.bytes(), { date: fechaCaptura });
         fotosEncontradas++;
       } catch (err) {
         faltantes.push(
-          `${etiquetaArchivo} — error al leerla: ${err instanceof Error ? err.message : String(err)} (clientPhotoId: ${foto.clientPhotoId})`,
+          `${nombreArchivo} — error al leerla: ${err instanceof Error ? err.message : String(err)} (clientPhotoId: ${foto.clientPhotoId})`,
         );
       }
     }

@@ -186,21 +186,24 @@ export class ReportesService {
 
   /**
    * ZIP con fotos confirmadas del proyecto. Nombre de archivo de cada foto:
-   * siempre `{codigoAnterior}-{consecutivo}.jpg`, sin fecha — el consecutivo
-   * es un contador por activo (no por registro), así que sigue siendo único
-   * aunque el mismo activo aporte fotos de más de un registro dentro del ZIP.
+   * siempre `{codigoAnterior}-{slot}.jpg` (slot = orden+1: 1=Vista general,
+   * 2=Placa/QR, etc.) — el mismo esquema que usa el respaldo local del
+   * celular, para que un coordinador reconozca la misma foto en los dos
+   * lados sin tener que adivinar.
    *
    * Sin `desde`/`hasta`: comportamiento original — solo el último registro
    * de cada activo (una foto por activo por slot, sin importar cuántas
-   * auditorías tenga en su historial).
+   * auditorías tenga en su historial) — acá el nombre nunca se repite.
    *
    * Con `desde`/`hasta` (filtro por fecha de captura / auditadoEn): TODOS
    * los registros del proyecto cuya auditoría cayó en ese rango, sin
    * limitarse al último por activo — es lo que permite descargar un
    * proyecto grande en tandas (ej. "lo capturado esta semana") sin huecos
-   * ni duplicados entre una descarga y la siguiente. Los registros se
-   * recorren en orden cronológico para que el consecutivo de cada activo
-   * sea estable entre descargas.
+   * ni duplicados entre una descarga y la siguiente. Si un activo fue
+   * reprocesado dentro del rango, el mismo slot puede repetirse (a
+   * propósito, no hay consecutivo que lo evite): la fecha de captura real
+   * queda como metadata del archivo dentro del zip, así el coordinador
+   * distingue cuál es la más reciente por fecha, no por nombre.
    */
   async generarZipFotos(
     tenantPrisma: TenantPrismaClient,
@@ -217,6 +220,7 @@ export class ReportesService {
     interface RegistroParaZip {
       id: string;
       codigoAnterior: string;
+      auditadoEn: Date;
     }
 
     let registros: RegistroParaZip[];
@@ -232,11 +236,9 @@ export class ReportesService {
         },
         select: {
           id: true,
+          auditadoEn: true,
           activo: { select: { codigoAnterior: true } },
         },
-        // Orden cronológico: el consecutivo de cada activo en el nombre de
-        // archivo depende del orden en que se recorren sus registros, así
-        // que sin esto podría variar entre una descarga y la siguiente.
         orderBy: { auditadoEn: 'asc' },
       });
       registros = filas
@@ -244,6 +246,7 @@ export class ReportesService {
         .map((f) => ({
           id: f.id,
           codigoAnterior: f.activo!.codigoAnterior,
+          auditadoEn: f.auditadoEn,
         }));
     } else {
       const ultimoPorActivo =
@@ -259,7 +262,11 @@ export class ReportesService {
         .map((activo): RegistroParaZip | null => {
           const registro = ultimoPorActivo.get(activo.id);
           return registro
-            ? { id: registro.id, codigoAnterior: activo.codigoAnterior }
+            ? {
+                id: registro.id,
+                codigoAnterior: activo.codigoAnterior,
+                auditadoEn: registro.auditadoEn,
+              }
             : null;
         })
         .filter((r): r is RegistroParaZip => r !== null);
@@ -282,23 +289,23 @@ export class ReportesService {
 
     const archive = new ZipArchive({ zlib: { level: 9 } });
 
-    // La lista plana (registro, foto) en orden define el consecutivo de cada
-    // nombre de archivo — se calcula ANTES de bajar nada, así el nombre no
-    // depende del orden en que terminen las descargas concurrentes.
-    // Contador por activo (no por registro): con el filtro de fechas, un
-    // mismo activo puede aportar fotos de varios registros al ZIP — sin
-    // fecha en el nombre, este consecutivo es lo único que evita que un
-    // archivo pise a otro.
-    const consecutivoPorActivo = new Map<string, number>();
-    const entradas: { s3Key: string; nombre: string }[] = [];
+    // El nombre es <código>-<slot> (slot = orden+1: 1=Vista general,
+    // 2=Placa/QR, etc.) — el mismo esquema que usa el respaldo local del
+    // celular (ver archivarFotosLocal en mobile), a propósito, para que un
+    // coordinador pueda reconocer la misma foto en los dos lados. Con el
+    // filtro de fechas, un activo reprocesado puede aportar más de un
+    // registro con el mismo slot — el nombre se repite adrede (no hay
+    // consecutivo que lo evite) y la fecha real de captura (auditadoEn) va
+    // como metadata del archivo dentro del zip, para que el coordinador
+    // pueda distinguir cuál es la más reciente por la fecha, no por el
+    // nombre.
+    const entradas: { s3Key: string; nombre: string; fecha: Date }[] = [];
     for (const registro of registros) {
       for (const foto of fotosPorRegistro.get(registro.id) ?? []) {
-        const consecutivo =
-          (consecutivoPorActivo.get(registro.codigoAnterior) ?? 0) + 1;
-        consecutivoPorActivo.set(registro.codigoAnterior, consecutivo);
         entradas.push({
           s3Key: foto.s3Key,
-          nombre: `${registro.codigoAnterior}-${consecutivo}.jpg`,
+          nombre: `${registro.codigoAnterior}-${foto.orden + 1}.jpg`,
+          fecha: registro.auditadoEn,
         });
       }
     }
@@ -333,7 +340,7 @@ export class ReportesService {
    */
   private async llenarZipFotos(
     archive: Archiver,
-    entradas: { s3Key: string; nombre: string }[],
+    entradas: { s3Key: string; nombre: string; fecha: Date }[],
   ): Promise<void> {
     const CONCURRENCIA = 8;
     try {
@@ -342,8 +349,15 @@ export class ReportesService {
         const bytes = await Promise.all(
           lote.map((e) => this.s3.descargarObjeto(e.s3Key)),
         );
+        // `date` queda como fecha de modificación del archivo dentro del
+        // zip (la fecha de captura real, no la de hoy) — es lo que
+        // distingue una foto de otra cuando el nombre se repite por un
+        // reproceso del mismo activo.
         lote.forEach((entrada, j) =>
-          archive.append(bytes[j], { name: entrada.nombre }),
+          archive.append(bytes[j], {
+            name: entrada.nombre,
+            date: entrada.fecha,
+          }),
         );
       }
       await archive.finalize();

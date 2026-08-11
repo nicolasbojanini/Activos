@@ -17,33 +17,45 @@ export function sanear(texto: string): string {
 }
 
 /**
- * Respaldo permanente: una copia de cada foto capturada, con nombre legible
- * (código del activo + orden/etiqueta), que NUNCA se borra — a diferencia de
- * la copia de trabajo en `carpetaFotos` (nombrada por clientPhotoId, que sí
- * se borra una vez confirmada la subida). Sirve para que, conectando el
- * celular a una PC más adelante, alguien pueda revisar/rescatar fotos a
- * mano sin depender de que la sincronización haya funcionado. Sin límite de
- * tiempo ni de proyecto a propósito — queda a criterio de quien administre
- * el dispositivo limpiar esta carpeta si el almacenamiento se ajusta.
+ * Respaldo permanente: una copia de cada foto capturada, con el MISMO
+ * esquema de nombre que usa la descarga de fotos del portal
+ * (`{código}-{slot}.jpg`, slot = orden+1) — a propósito, para que un
+ * coordinador reconozca la misma foto en los dos lados. Nunca se borra por
+ * sí sola — a diferencia de la copia de trabajo en `carpetaFotos` (nombrada
+ * por clientPhotoId, que sí se borra una vez confirmada la subida). Sirve
+ * para que, conectando el celular a una PC más adelante, alguien pueda
+ * revisar/rescatar fotos a mano sin depender de que la sincronización haya
+ * funcionado. Sin límite de tiempo ni de proyecto a propósito.
+ *
+ * Si el mismo activo se reprocesa (mismo código, mismo slot), la copia
+ * nueva REEMPLAZA a la vieja acá — mismo criterio "última captura gana" que
+ * ya usa el resto de la app (ver aplicarCambiosAActivo en el backend). El
+ * portal, en cambio, sí puede llegar a tener el mismo nombre repetido en un
+ * mismo ZIP si el rango de fechas incluye más de un reproceso — ahí la
+ * fecha de captura (metadata del archivo) es lo que permite distinguirlas.
  */
 const carpetaArchivo = new Directory(Paths.document, 'archivo-fotos');
+
+function asegurarCarpetaArchivo() {
+  if (!carpetaArchivo.exists) {
+    carpetaArchivo.create({ intermediates: true });
+  }
+}
 
 /** Copia cada foto ya capturada (por clientPhotoId) al respaldo permanente. No falla si alguna ya no existe localmente. */
 export function archivarFotosLocal(
   codigoAnterior: string | null,
-  clientId: string,
   fotos: { clientPhotoId: string; etiqueta: string | null; orden: number }[],
 ) {
   if (fotos.length === 0) return;
-  const carpetaActivo = new Directory(carpetaArchivo, `${sanear(codigoAnterior ?? 'sin-codigo')}-${clientId.slice(-6)}`);
-  if (!carpetaActivo.exists) carpetaActivo.create({ intermediates: true });
+  asegurarCarpetaArchivo();
 
   for (const foto of fotos) {
     const origen = archivoLocalFoto(foto.clientPhotoId);
     if (!origen.exists) continue;
-    const destino = new File(carpetaActivo, `${foto.orden}_${sanear(foto.etiqueta ?? 'foto')}.jpg`);
-    if (destino.exists) continue;
+    const destino = new File(carpetaArchivo, `${sanear(codigoAnterior ?? 'sin-codigo')}-${foto.orden + 1}.jpg`);
     try {
+      if (destino.exists) destino.delete();
       origen.copy(destino);
     } catch {
       // El respaldo es un extra, no debe interrumpir el flujo de captura/sincronización.
