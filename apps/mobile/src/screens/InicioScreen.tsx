@@ -110,6 +110,7 @@ export function InicioScreen({ navigation }: Props) {
     void queryClient.invalidateQueries({ queryKey: ['resumen-local'] });
     void queryClient.invalidateQueries({ queryKey: ['activos-local'] });
     void queryClient.invalidateQueries({ queryKey: ['pendientes-sync'] });
+    void queryClient.invalidateQueries({ queryKey: ['fotos-pendientes'] });
     // El espejo cambió: las sugerencias dinámicas se recalculan (se cachean
     // indefinidamente justo porque solo dependen del espejo).
     void queryClient.invalidateQueries({ queryKey: [CLAVE_SUGERENCIAS] });
@@ -204,6 +205,7 @@ export function InicioScreen({ navigation }: Props) {
         void queryClient.invalidateQueries({ queryKey: ['resumen-local'] });
         void queryClient.invalidateQueries({ queryKey: ['activos-local'] });
         void queryClient.invalidateQueries({ queryKey: ['pendientes-sync'] });
+        void queryClient.invalidateQueries({ queryKey: ['fotos-pendientes'] });
         void queryClient.invalidateQueries({ queryKey: [CLAVE_SUGERENCIAS] });
       } catch (err) {
         if (!habiaSesion) {
@@ -255,6 +257,16 @@ export function InicioScreen({ navigation }: Props) {
     queryFn: async () => {
       const { contarPendientesSync } = await import('../db/sync');
       return contarPendientesSync();
+    },
+  });
+  // Registros que ya se guardaron en el servidor pero cuyas fotos todavía no
+  // terminaron de subir — se cuentan aparte para no mostrarlos como
+  // "pendientes" (que suena a "no se guardó nada").
+  const { data: fotosPendientes = 0 } = useQuery({
+    queryKey: ['fotos-pendientes'],
+    queryFn: async () => {
+      const { contarFotosPendientes } = await import('../db/sync');
+      return contarFotosPendientes();
     },
   });
 
@@ -381,10 +393,14 @@ export function InicioScreen({ navigation }: Props) {
                 {!conectado && <CloudOff size={14} color={colors.ink[500]} />}
                 <Text style={styles.syncTexto}>
                   {!conectado ? 'Sin conexión · ' : ''}
-                  {pendientesSync > 0 ? `${pendientesSync} cambios sin sincronizar` : 'Todo sincronizado'}
+                  {pendientesSync > 0
+                    ? `${pendientesSync} cambios sin sincronizar`
+                    : fotosPendientes > 0
+                      ? `${fotosPendientes} fotos por subir`
+                      : 'Todo sincronizado'}
                 </Text>
               </View>
-              {pendientesSync > 0 && (
+              {(pendientesSync > 0 || fotosPendientes > 0) && (
                 <View style={{ flexDirection: 'row', gap: spacing[3] }}>
                   <Pressable
                     onPress={() => void ejecutarSincronizacion()}
@@ -398,18 +414,20 @@ export function InicioScreen({ navigation }: Props) {
                     )}
                     <Text style={styles.syncButtonLabel}>Sincronizar ahora</Text>
                   </Pressable>
-                  <Pressable
-                    onPress={() => void ejecutarExportacion()}
-                    style={styles.syncButton}
-                    disabled={exportando}
-                  >
-                    {exportando ? (
-                      <ActivityIndicator size="small" color={colors.brand.blue} />
-                    ) : (
-                      <Share2 size={14} color={colors.brand.blue} />
-                    )}
-                    <Text style={styles.syncButtonLabel}>Exportar pendientes</Text>
-                  </Pressable>
+                  {pendientesSync > 0 && (
+                    <Pressable
+                      onPress={() => void ejecutarExportacion()}
+                      style={styles.syncButton}
+                      disabled={exportando}
+                    >
+                      {exportando ? (
+                        <ActivityIndicator size="small" color={colors.brand.blue} />
+                      ) : (
+                        <Share2 size={14} color={colors.brand.blue} />
+                      )}
+                      <Text style={styles.syncButtonLabel}>Exportar pendientes</Text>
+                    </Pressable>
+                  )}
                 </View>
               )}
             </View>

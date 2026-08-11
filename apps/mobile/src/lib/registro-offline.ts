@@ -106,12 +106,26 @@ async function subirYConfirmarFotos(
   return true;
 }
 
+/**
+ * El registro (estado/campos/nota) y las fotos se confirman en pasos
+ * separados: crearRegistro es liviano y casi siempre pasa con señal débil;
+ * subir varias fotos JPEG seguidas es mucho más sensible a la misma señal y
+ * falla mucho más seguido. Antes, si las fotos fallaban, ni siquiera se
+ * marcaba `registroSincronizado` — así que un lote con buena señal para el
+ * registro pero mala para fotos pesadas quedaba mostrando "70 pendientes"
+ * indefinidamente, aunque los 70 registros YA estuvieran guardados en el
+ * servidor (visto en producción con Decameron). Ahora se marca
+ * `registroSincronizado` apenas crearRegistro responde, sin esperar a las
+ * fotos — contarPendientesSync() cuenta solo lo que de verdad no llegó.
+ */
 async function intentarSincronizar(clientId: string, input: EncolarInput): Promise<boolean> {
   try {
     const { registro, uploads } = await crearRegistro(aRegistroAuditoriaInput(input));
+    await marcarRegistroConfirmado(clientId);
+
     const fotosSubidas = await subirYConfirmarFotos(registro.id, uploads, input.fotos);
     if (!fotosSubidas) {
-      console.warn('[sync] subida de fotos falló, registro queda pendiente', clientId);
+      console.warn('[sync] registro confirmado, subida de fotos falló — reintenta después', clientId);
       return false;
     }
 
@@ -121,6 +135,10 @@ async function intentarSincronizar(clientId: string, input: EncolarInput): Promi
     console.warn('[sync] intentarSincronizar falló', clientId, err);
     return false;
   }
+}
+
+async function marcarRegistroConfirmado(clientId: string) {
+  await db.update(colaRegistros).set({ registroSincronizado: 1 }).where(eq(colaRegistros.clientId, clientId));
 }
 
 async function marcarComoSincronizado(clientId: string, input: EncolarInput) {

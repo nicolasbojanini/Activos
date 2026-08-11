@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import * as XLSX from 'xlsx';
 import { Directory, File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
@@ -31,7 +31,13 @@ export interface ResultadoExportarPendientes {
  * a propósito no viajan acá (ver COLUMNAS_EXPORT_PENDIENTES).
  */
 export async function exportarPendientes(): Promise<ResultadoExportarPendientes | null> {
-  const pendientes = await db.select().from(colaRegistros).where(eq(colaRegistros.synced, 0));
+  // Solo lo que de verdad no llegó al servidor (registroSincronizado = 0) —
+  // lo que ya se guardó y solo le faltan fotos no necesita re-importarse,
+  // esas se completan solas por el canal normal apenas haya señal.
+  const pendientes = await db
+    .select()
+    .from(colaRegistros)
+    .where(and(eq(colaRegistros.synced, 0), eq(colaRegistros.registroSincronizado, 0)));
   if (pendientes.length === 0) return null;
 
   const { clienteId, usuario } = useAuthStore.getState();

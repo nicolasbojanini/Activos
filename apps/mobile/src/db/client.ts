@@ -72,6 +72,7 @@ export function inicializarBaseLocal() {
       lng INTEGER,
       auditado_en TEXT NOT NULL,
       fotos_json TEXT NOT NULL DEFAULT '[]',
+      registro_sincronizado INTEGER NOT NULL DEFAULT 0,
       synced INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL
     );
@@ -115,6 +116,16 @@ export function inicializarBaseLocal() {
 
   try {
     sqlite.execSync(`ALTER TABLE cola_registros ADD COLUMN codigo_anterior_snapshot TEXT;`);
+  } catch {
+    // La columna ya existe (instalación nueva que la creó en el CREATE TABLE de arriba).
+  }
+
+  // Instalaciones viejas: las filas existentes quedan en 0 (no sabemos si su
+  // registro ya llegó al servidor) — el próximo intento de sync las reconfirma
+  // solas (crearRegistro es idempotente) y ahí se corrige, sin necesitar un
+  // backfill especial acá.
+  try {
+    sqlite.execSync(`ALTER TABLE cola_registros ADD COLUMN registro_sincronizado INTEGER NOT NULL DEFAULT 0;`);
   } catch {
     // La columna ya existe (instalación nueva que la creó en el CREATE TABLE de arriba).
   }

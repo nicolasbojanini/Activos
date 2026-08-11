@@ -60,6 +60,14 @@ export const colaRegistros = sqliteTable('cola_registros', {
   lng: integer('lng'),
   auditadoEn: text('auditado_en').notNull(),
   fotosJson: text('fotos_json').notNull().default('[]'),
+  // El registro (estado/campos/nota) y las fotos se confirman en pasos
+  // separados: el primero es liviano y casi siempre pasa aunque la señal sea
+  // débil, las fotos son pesadas y fallan mucho más seguido con la misma
+  // señal. `registroSincronizado` marca el primer paso — así "pendientes"
+  // puede contar solo lo que de verdad no llegó al servidor, sin mezclar
+  // registros que ya están guardados pero cuyas fotos todavía se están
+  // subiendo (ver contarPendientesSync/contarFotosPendientes).
+  registroSincronizado: integer('registro_sincronizado').notNull().default(0),
   synced: integer('synced').notNull().default(0),
   createdAt: text('created_at').notNull(),
 });

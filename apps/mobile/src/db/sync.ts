@@ -375,11 +375,21 @@ export async function calcularResumenLocal(): Promise<ResumenLocal> {
   };
 }
 
+/** Cambios que todavía no llegaron al servidor en absoluto — no incluye los que ya se guardaron y solo les faltan fotos (ver contarFotosPendientes). */
 export async function contarPendientesSync(): Promise<number> {
   const [fila] = await db
     .select({ n: sql<number>`count(*)` })
     .from(colaRegistros)
-    .where(eq(colaRegistros.synced, 0));
+    .where(and(eq(colaRegistros.synced, 0), eq(colaRegistros.registroSincronizado, 0)));
+  return fila?.n ?? 0;
+}
+
+/** Registros ya guardados en el servidor a los que todavía les faltan fotos por subir. */
+export async function contarFotosPendientes(): Promise<number> {
+  const [fila] = await db
+    .select({ n: sql<number>`count(*)` })
+    .from(colaRegistros)
+    .where(and(eq(colaRegistros.synced, 0), eq(colaRegistros.registroSincronizado, 1)));
   return fila?.n ?? 0;
 }
 
