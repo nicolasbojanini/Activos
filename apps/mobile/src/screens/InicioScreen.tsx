@@ -137,6 +137,12 @@ export function InicioScreen({ navigation }: Props) {
       const resultado = await exportarPendientes();
       if (!resultado) {
         Alert.alert('Nada que exportar', 'No hay cambios pendientes de sincronizar.');
+      } else if (resultado.fotosEncontradas < resultado.fotosReferenciadas) {
+        const faltan = resultado.fotosReferenciadas - resultado.fotosEncontradas;
+        Alert.alert(
+          'Faltan fotos en el zip',
+          `${faltan} de ${resultado.fotosReferenciadas} fotos no se encontraron en el almacenamiento del celular y no se pudieron incluir. El detalle queda en "_fotos_no_encontradas.txt" dentro del zip.`,
+        );
       }
     } catch {
       Alert.alert('No se pudo exportar', 'Intenta de nuevo.');

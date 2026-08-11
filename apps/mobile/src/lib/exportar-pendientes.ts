@@ -25,6 +25,9 @@ function asegurarCarpeta() {
 export interface ResultadoExportarPendientes {
   archivo: File;
   cantidad: number;
+  /** Fotos que la cola dice que existen (fotosJson) vs. las que realmente se encontraron en el almacenamiento del celular al armar el zip. */
+  fotosReferenciadas: number;
+  fotosEncontradas: number;
 }
 
 /**
@@ -94,22 +97,41 @@ export async function exportarPendientes(): Promise<ResultadoExportarPendientes 
   // carpeta por activo (código + últimos 6 del clientId, por si el mismo
   // código quedó auditado dos veces en la cola) con sus fotos adentro,
   // nombradas por orden/etiqueta para reconocerlas de un vistazo.
+  //
+  // Se cuenta aparte lo REFERENCIADO (lo que la cola dice que existe) contra
+  // lo ENCONTRADO (lo que de verdad sigue en el almacenamiento del celular):
+  // si algo se perdió del disco por el motivo que sea, antes esto fallaba en
+  // silencio — el zip simplemente no se generaba y nadie se enteraba. Ahora
+  // se arma igual (con lo que sí se encontró) y se deja constancia de lo
+  // faltante en un archivo de texto adentro del propio zip.
   const zip = new JSZip();
-  let huboFotos = false;
+  let fotosReferenciadas = 0;
+  let fotosEncontradas = 0;
+  const faltantes: string[] = [];
   for (const p of pendientes) {
     const fotos = JSON.parse(p.fotosJson) as FotoInput[];
     if (fotos.length === 0) continue;
     const carpeta = `${sanear(p.codigoAnteriorSnapshot ?? 'sin-codigo')}-${p.clientId.slice(-6)}`;
     for (const foto of fotos) {
+      fotosReferenciadas++;
       const local = archivoLocalFoto(foto.clientPhotoId);
-      if (!local.exists) continue;
+      if (!local.exists) {
+        faltantes.push(`${carpeta}/${foto.orden}_${sanear(foto.etiqueta ?? 'foto')}.jpg (clientPhotoId: ${foto.clientPhotoId})`);
+        continue;
+      }
       const nombreArchivo = `${foto.orden}_${sanear(foto.etiqueta ?? 'foto')}.jpg`;
       zip.file(`${carpeta}/${nombreArchivo}`, await local.bytes());
-      huboFotos = true;
+      fotosEncontradas++;
     }
   }
 
-  if (huboFotos) {
+  if (fotosReferenciadas > 0) {
+    if (faltantes.length > 0) {
+      zip.file(
+        '_fotos_no_encontradas.txt',
+        `Estas fotos estaban registradas pero no se encontraron en el almacenamiento del celular al exportar:\n\n${faltantes.join('\n')}`,
+      );
+    }
     const zipBase64 = await zip.generateAsync({ type: 'base64' });
     const archivoZip = new File(carpetaExportados, `adn-fotos-pendientes-${fecha}-${pendientes.length}.zip`);
     if (archivoZip.exists) archivoZip.delete();
@@ -124,5 +146,5 @@ export async function exportarPendientes(): Promise<ResultadoExportarPendientes 
     }
   }
 
-  return { archivo, cantidad: pendientes.length };
+  return { archivo, cantidad: pendientes.length, fotosReferenciadas, fotosEncontradas };
 }
