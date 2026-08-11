@@ -17,7 +17,7 @@ import { esSoloLetras } from '../lib/validacion-texto';
 import { CLAVE_SUGERENCIAS, useSugerencias } from '../lib/useSugerencias';
 import { CampoTextoConSugerencias } from '../components/CampoTextoConSugerencias';
 import { calcularReubicacionAutomatica } from '../lib/ubicacion-relocate';
-import { CLAVE_UBICACION_BASE, useUbicacionActivaStore } from '../lib/ubicacion-activa-store';
+import { CLAVE_UBICACION_BASE, exigirUbicacionActiva, useUbicacionActivaStore } from '../lib/ubicacion-activa-store';
 import { capturarFoto, eliminarFotoLocal, type FotoCapturada } from '../lib/fotos';
 import { HeaderBar } from '../components/HeaderBar';
 import { PrimaryButton } from '../components/PrimaryButton';
@@ -131,6 +131,13 @@ export function ActualizarScreen({ route, navigation }: Props) {
   };
 
   const ubicacionActiva = useUbicacionActivaStore((s) => s.ubicacionActiva);
+
+  // Defensa en profundidad: DetalleScreen ya exige ubicación activa antes de
+  // navegar acá — esto cubre cualquier otra forma de entrar a esta pantalla
+  // que se agregue más adelante sin recordar ese requisito.
+  useEffect(() => {
+    exigirUbicacionActiva(navigation);
+  }, [ubicacionActiva, navigation]);
 
   const { data: resultado } = useQuery({
     queryKey: ['activo-local', activoId],

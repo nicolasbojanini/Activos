@@ -1,4 +1,10 @@
+import { Alert } from 'react-native';
 import { create } from 'zustand';
+
+/** Todo lo que exigirUbicacionActiva necesita del objeto navigation — evita pelear con los genéricos específicos de cada pantalla de NativeStackScreenProps. */
+interface NavegacionConReplace {
+  replace: (screen: 'Ubicacion') => void;
+}
 
 /** Clave del campo base "Ubicación" dentro del diccionario de valores — las demás claves son ids de CampoUbicacion. */
 export const CLAVE_UBICACION_BASE = 'ubicacion';
@@ -25,3 +31,24 @@ export const useUbicacionActivaStore = create<UbicacionActivaState>((set) => ({
   setUbicacionActiva: (valores) => set({ ubicacionActiva: valores }),
   clear: () => set({ ubicacionActiva: null }),
 }));
+
+/**
+ * Guardia reutilizable: cualquier acción que pueda grabar una auditoría
+ * (escanear, buscar y crear, actualizar, confirmar/faltante desde el
+ * detalle) debe pasar por acá antes de proceder. Antes esta validación solo
+ * vivía en la pantalla de escanear con cámara — se podía crear o actualizar
+ * un activo sin ubicación activa entrando por el buscador de Inicio o por
+ * los botones directos del Detalle. Devuelve `true` si ya hay ubicación
+ * activa (puede proceder); si no, muestra el mismo aviso que ya conocían los
+ * auditores y los manda a escribirla, y devuelve `false`.
+ */
+export function exigirUbicacionActiva(navigation: NavegacionConReplace): boolean {
+  if (useUbicacionActivaStore.getState().ubicacionActiva) return true;
+
+  Alert.alert(
+    'Escribe primero la ubicación',
+    'Antes de auditar un activo, escribe en qué ubicación te encuentras.',
+    [{ text: 'Entendido', onPress: () => navigation.replace('Ubicacion') }],
+  );
+  return false;
+}

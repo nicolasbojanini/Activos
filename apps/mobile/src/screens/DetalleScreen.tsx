@@ -11,6 +11,7 @@ import { useProyectoActual } from '../lib/useProyectoActual';
 import { useConfiguracionCampos } from '../lib/useConfiguracionCampos';
 import { encolarRegistro } from '../lib/registro-offline';
 import { calcularReubicacionAutomatica } from '../lib/ubicacion-relocate';
+import { exigirUbicacionActiva } from '../lib/ubicacion-activa-store';
 import { EstadoBadge } from '../components/EstadoBadge';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { HeaderBar } from '../components/HeaderBar';
@@ -98,6 +99,7 @@ export function DetalleScreen({ route, navigation }: Props) {
 
   const enviarRegistro = async (estado: 'AUDITADO' | 'FALTANTE') => {
     if (!proyecto || !resultado) return;
+    if (!exigirUbicacionActiva(navigation)) return;
     setEnviando(true);
     const camposUbicacionActuales: Record<string, string> = resultado.activo.camposUbicacionJson
       ? (JSON.parse(resultado.activo.camposUbicacionJson) as Record<string, string>)
@@ -196,7 +198,10 @@ export function DetalleScreen({ route, navigation }: Props) {
             <PrimaryButton
               label="Actualizar"
               variant="outline"
-              onPress={() => navigation.navigate('Actualizar', { activoId })}
+              onPress={() => {
+                if (!exigirUbicacionActiva(navigation)) return;
+                navigation.navigate('Actualizar', { activoId });
+              }}
               disabled={enviando}
             />
           </View>
@@ -204,7 +209,10 @@ export function DetalleScreen({ route, navigation }: Props) {
             <PrimaryButton
               label="Diferencia"
               variant="danger"
-              onPress={() => navigation.navigate('Actualizar', { activoId })}
+              onPress={() => {
+                if (!exigirUbicacionActiva(navigation)) return;
+                navigation.navigate('Actualizar', { activoId });
+              }}
               disabled={enviando}
             />
           </View>

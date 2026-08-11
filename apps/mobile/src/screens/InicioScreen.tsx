@@ -19,7 +19,7 @@ import { colors, radius, spacing } from '@adn/ui-tokens';
 import type { CategoriaActivo, ProyectoOutput } from '@adn/shared';
 import { getProyecto } from '../lib/services';
 import { useAuthStore } from '../lib/auth-store';
-import { CLAVE_UBICACION_BASE, useUbicacionActivaStore } from '../lib/ubicacion-activa-store';
+import { CLAVE_UBICACION_BASE, exigirUbicacionActiva, useUbicacionActivaStore } from '../lib/ubicacion-activa-store';
 import { CircularProgress } from '../components/CircularProgress';
 import { CategoriaIcon } from '../components/CategoriaIcon';
 import { EstadoBadge } from '../components/EstadoBadge';
@@ -471,7 +471,10 @@ export function InicioScreen({ navigation }: Props) {
           mostrarCrearActivo ? (
             <Pressable
               style={styles.crearActivoBtn}
-              onPress={() => navigation.navigate('NoRegistrado', { codigo: qDebounced.trim() })}
+              onPress={() => {
+                if (!exigirUbicacionActiva(navigation)) return;
+                navigation.navigate('NoRegistrado', { codigo: qDebounced.trim() });
+              }}
             >
               <PlusCircle size={16} color={colors.brand.blue} strokeWidth={1.8} />
               <Text style={styles.crearActivoLabel}>Crear activo con código «{qDebounced.trim()}»</Text>
