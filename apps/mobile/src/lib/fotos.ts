@@ -11,6 +11,46 @@ function asegurarCarpeta() {
   }
 }
 
+/** Nombre de carpeta/archivo sin caracteres que rompan el sistema de archivos. */
+export function sanear(texto: string): string {
+  return texto.replace(/[\\/:*?"<>|]/g, '-').trim() || 'sin-nombre';
+}
+
+/**
+ * Respaldo permanente: una copia de cada foto capturada, con nombre legible
+ * (código del activo + orden/etiqueta), que NUNCA se borra — a diferencia de
+ * la copia de trabajo en `carpetaFotos` (nombrada por clientPhotoId, que sí
+ * se borra una vez confirmada la subida). Sirve para que, conectando el
+ * celular a una PC más adelante, alguien pueda revisar/rescatar fotos a
+ * mano sin depender de que la sincronización haya funcionado. Sin límite de
+ * tiempo ni de proyecto a propósito — queda a criterio de quien administre
+ * el dispositivo limpiar esta carpeta si el almacenamiento se ajusta.
+ */
+const carpetaArchivo = new Directory(Paths.document, 'archivo-fotos');
+
+/** Copia cada foto ya capturada (por clientPhotoId) al respaldo permanente. No falla si alguna ya no existe localmente. */
+export function archivarFotosLocal(
+  codigoAnterior: string | null,
+  clientId: string,
+  fotos: { clientPhotoId: string; etiqueta: string | null; orden: number }[],
+) {
+  if (fotos.length === 0) return;
+  const carpetaActivo = new Directory(carpetaArchivo, `${sanear(codigoAnterior ?? 'sin-codigo')}-${clientId.slice(-6)}`);
+  if (!carpetaActivo.exists) carpetaActivo.create({ intermediates: true });
+
+  for (const foto of fotos) {
+    const origen = archivoLocalFoto(foto.clientPhotoId);
+    if (!origen.exists) continue;
+    const destino = new File(carpetaActivo, `${foto.orden}_${sanear(foto.etiqueta ?? 'foto')}.jpg`);
+    if (destino.exists) continue;
+    try {
+      origen.copy(destino);
+    } catch {
+      // El respaldo es un extra, no debe interrumpir el flujo de captura/sincronización.
+    }
+  }
+}
+
 export interface FotoCapturada {
   clientPhotoId: string;
   localUri: string;

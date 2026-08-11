@@ -5,7 +5,7 @@ import { db } from '../db/client';
 import { activosLocal, colaRegistros } from '../db/schema';
 import { aplicarCambiosAlEspejoLocal } from '../db/sync';
 import { crearRegistro, confirmarFotosRegistro } from './services';
-import { archivoLocalFoto, eliminarFotoLocal, type FotoCapturada } from './fotos';
+import { archivarFotosLocal, archivoLocalFoto, eliminarFotoLocal, type FotoCapturada } from './fotos';
 
 type FotoLocalConDimensiones = Pick<FotoCapturada, 'clientPhotoId' | 'etiqueta' | 'orden' | 'ancho' | 'alto'>;
 
@@ -40,6 +40,10 @@ export async function encolarRegistro(input: EncolarInput): Promise<void> {
     synced: 0,
     createdAt: new Date().toISOString(),
   });
+
+  // Respaldo permanente aparte de la copia de trabajo — nunca se borra, ni
+  // siquiera después de sincronizar (ver archivarFotosLocal en fotos.ts).
+  archivarFotosLocal(input.codigoAnteriorSnapshot ?? null, input.clientId, input.fotos);
 
   // El espejo local refleja de una vez lo capturado (misma regla que aplica
   // el backend al sincronizar), así la ficha y las sugerencias dinámicas ven

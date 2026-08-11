@@ -7,12 +7,7 @@ import { COLUMNAS_EXPORT_PENDIENTES, type FotoInput } from '@adn/shared';
 import { db } from '../db/client';
 import { colaRegistros } from '../db/schema';
 import { useAuthStore } from './auth-store';
-import { archivoLocalFoto } from './fotos';
-
-/** Nombre de carpeta/archivo sin caracteres que rompan un zip o un explorador de archivos. */
-function sanear(texto: string): string {
-  return texto.replace(/[\\/:*?"<>|]/g, '-').trim() || 'sin-nombre';
-}
+import { archivoLocalFoto, sanear } from './fotos';
 
 const carpetaExportados = new Directory(Paths.document, 'exportados');
 
