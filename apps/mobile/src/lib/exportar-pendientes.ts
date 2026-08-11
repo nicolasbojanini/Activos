@@ -28,6 +28,8 @@ export interface ResultadoExportarPendientes {
   /** Fotos que la cola dice que existen (fotosJson) vs. las que realmente se encontraron en el almacenamiento del celular al armar el zip. */
   fotosReferenciadas: number;
   fotosEncontradas: number;
+  /** Si algo rompió al armar/compartir el zip (una foto puntual no cuenta acá, eso va en "faltantes" dentro del propio zip) — el Excel ya se exportó igual, esto es solo informativo. */
+  errorZip: string | null;
 }
 
 /**
@@ -99,11 +101,14 @@ export async function exportarPendientes(): Promise<ResultadoExportarPendientes 
   // nombradas por orden/etiqueta para reconocerlas de un vistazo.
   //
   // Se cuenta aparte lo REFERENCIADO (lo que la cola dice que existe) contra
-  // lo ENCONTRADO (lo que de verdad sigue en el almacenamiento del celular):
-  // si algo se perdió del disco por el motivo que sea, antes esto fallaba en
-  // silencio — el zip simplemente no se generaba y nadie se enteraba. Ahora
-  // se arma igual (con lo que sí se encontró) y se deja constancia de lo
-  // faltante en un archivo de texto adentro del propio zip.
+  // lo ENCONTRADO (lo que de verdad se pudo leer del celular): antes, si UNA
+  // sola foto tiraba una excepción al leerla (archivo corrupto, permiso, lo
+  // que sea), el error se propagaba y mataba el export entero — el Excel ya
+  // se había compartido, pero el zip de fotos desaparecía en silencio sin
+  // ningún rastro de qué pasó. Cada foto ahora se procesa en su propio
+  // try/catch: una que falle no tira abajo a las demás, y tanto las que no
+  // se encontraron como las que dieron error quedan listadas en un archivo
+  // de texto dentro del zip.
   const zip = new JSZip();
   let fotosReferenciadas = 0;
   let fotosEncontradas = 0;
@@ -114,37 +119,48 @@ export async function exportarPendientes(): Promise<ResultadoExportarPendientes 
     const carpeta = `${sanear(p.codigoAnteriorSnapshot ?? 'sin-codigo')}-${p.clientId.slice(-6)}`;
     for (const foto of fotos) {
       fotosReferenciadas++;
-      const local = archivoLocalFoto(foto.clientPhotoId);
-      if (!local.exists) {
-        faltantes.push(`${carpeta}/${foto.orden}_${sanear(foto.etiqueta ?? 'foto')}.jpg (clientPhotoId: ${foto.clientPhotoId})`);
-        continue;
+      const etiquetaArchivo = `${carpeta}/${foto.orden}_${sanear(foto.etiqueta ?? 'foto')}.jpg`;
+      try {
+        const local = archivoLocalFoto(foto.clientPhotoId);
+        if (!local.exists) {
+          faltantes.push(`${etiquetaArchivo} — no se encontró en el celular (clientPhotoId: ${foto.clientPhotoId})`);
+          continue;
+        }
+        zip.file(etiquetaArchivo, await local.bytes());
+        fotosEncontradas++;
+      } catch (err) {
+        faltantes.push(
+          `${etiquetaArchivo} — error al leerla: ${err instanceof Error ? err.message : String(err)} (clientPhotoId: ${foto.clientPhotoId})`,
+        );
       }
-      const nombreArchivo = `${foto.orden}_${sanear(foto.etiqueta ?? 'foto')}.jpg`;
-      zip.file(`${carpeta}/${nombreArchivo}`, await local.bytes());
-      fotosEncontradas++;
     }
   }
 
+  let errorZip: string | null = null;
   if (fotosReferenciadas > 0) {
-    if (faltantes.length > 0) {
-      zip.file(
-        '_fotos_no_encontradas.txt',
-        `Estas fotos estaban registradas pero no se encontraron en el almacenamiento del celular al exportar:\n\n${faltantes.join('\n')}`,
-      );
-    }
-    const zipBase64 = await zip.generateAsync({ type: 'base64' });
-    const archivoZip = new File(carpetaExportados, `adn-fotos-pendientes-${fecha}-${pendientes.length}.zip`);
-    if (archivoZip.exists) archivoZip.delete();
-    archivoZip.create();
-    archivoZip.write(zipBase64, { encoding: 'base64' });
+    try {
+      if (faltantes.length > 0) {
+        zip.file(
+          '_fotos_no_encontradas.txt',
+          `Estas fotos estaban registradas pero no se pudieron incluir en el zip:\n\n${faltantes.join('\n')}`,
+        );
+      }
+      const zipBase64 = await zip.generateAsync({ type: 'base64' });
+      const archivoZip = new File(carpetaExportados, `adn-fotos-pendientes-${fecha}-${pendientes.length}.zip`);
+      if (archivoZip.exists) archivoZip.delete();
+      archivoZip.create();
+      archivoZip.write(zipBase64, { encoding: 'base64' });
 
-    if (disponible) {
-      await Sharing.shareAsync(archivoZip.uri, {
-        mimeType: 'application/zip',
-        dialogTitle: 'Exportar fotos de pendientes',
-      });
+      if (disponible) {
+        await Sharing.shareAsync(archivoZip.uri, {
+          mimeType: 'application/zip',
+          dialogTitle: 'Exportar fotos de pendientes',
+        });
+      }
+    } catch (err) {
+      errorZip = err instanceof Error ? err.message : String(err);
     }
   }
 
-  return { archivo, cantidad: pendientes.length, fotosReferenciadas, fotosEncontradas };
+  return { archivo, cantidad: pendientes.length, fotosReferenciadas, fotosEncontradas, errorZip };
 }
