@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import * as XLSX from 'xlsx';
@@ -75,6 +76,8 @@ function aTextoPlano(valor: unknown): string {
 
 @Injectable()
 export class RegistrosService {
+  private readonly logger = new Logger(RegistrosService.name);
+
   constructor(
     private readonly proyectosService: ProyectosService,
     private readonly s3: S3Service,
@@ -313,7 +316,18 @@ export class RegistrosService {
     return { total: filas.length, importados, errores };
   }
 
-  /** Confirma que las fotos ya se subieron a S3 y completa sus metadatos (ancho/alto/bytes). */
+  /**
+   * Confirma que las fotos ya se subieron a S3 y completa sus metadatos
+   * (ancho/alto/bytes). No confía en el `bytes` que manda el cliente: una subida puede volver
+   * con status 2xx (la app la trata como éxito y llama acá) sin que el
+   * objeto haya quedado realmente escrito en S3 — visto en producción
+   * (Terpel Occidente): varias fotos "confirmadas" con su tamaño correcto en
+   * la base, pero el objeto en MinIO pesaba 0 bytes de verdad. Se verifica
+   * el tamaño real contra S3 antes de dar la foto por confirmada; si da 0 o
+   * el objeto no existe, se deja sin confirmar (bytes sigue null) para que
+   * el próximo sync del dispositivo la reintente — en vez de quedar
+   * marcada como lista para siempre con un archivo vacío atrás.
+   */
   async confirmarFotos(
     tenantPrisma: TenantPrismaClient,
     registroId: string,
@@ -327,12 +341,19 @@ export class RegistrosService {
     }
 
     await Promise.all(
-      dto.fotos.map((foto) =>
-        tenantPrisma.foto.updateMany({
+      dto.fotos.map(async (foto) => {
+        const tamanoReal = await this.s3.tamanoObjeto(foto.s3Key);
+        if (!tamanoReal) {
+          this.logger.warn(
+            `Foto reportada como subida pero vacía/inexistente en S3, no se confirma: ${foto.s3Key}`,
+          );
+          return;
+        }
+        await tenantPrisma.foto.updateMany({
           where: { registroId, s3Key: foto.s3Key },
-          data: { ancho: foto.ancho, alto: foto.alto, bytes: foto.bytes },
-        }),
-      ),
+          data: { ancho: foto.ancho, alto: foto.alto, bytes: tamanoReal },
+        });
+      }),
     );
 
     return tenantPrisma.foto.findMany({ where: { registroId } });

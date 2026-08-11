@@ -4,6 +4,7 @@ import {
   CreateBucketCommand,
   GetObjectCommand,
   HeadBucketCommand,
+  HeadObjectCommand,
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
@@ -116,5 +117,22 @@ export class S3Service implements OnModuleInit {
     const respuesta = await this.client.send(command);
     const bytes = await respuesta.Body!.transformToByteArray();
     return Buffer.from(bytes);
+  }
+
+  /**
+   * Tamaño real del objeto en el bucket, sin bajar el contenido — para
+   * verificar que una subida reportada como "exitosa" por el cliente
+   * realmente escribió algo. `null` si el objeto no existe (subida que nunca
+   * llegó a S3).
+   */
+  async tamanoObjeto(s3Key: string): Promise<number | null> {
+    try {
+      const respuesta = await this.client.send(
+        new HeadObjectCommand({ Bucket: this.bucket, Key: s3Key }),
+      );
+      return respuesta.ContentLength ?? null;
+    } catch {
+      return null;
+    }
   }
 }
