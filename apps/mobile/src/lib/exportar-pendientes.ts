@@ -1,11 +1,18 @@
 import { and, eq } from 'drizzle-orm';
 import * as XLSX from 'xlsx';
+import JSZip from 'jszip';
 import { Directory, File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
-import { COLUMNAS_EXPORT_PENDIENTES } from '@adn/shared';
+import { COLUMNAS_EXPORT_PENDIENTES, type FotoInput } from '@adn/shared';
 import { db } from '../db/client';
 import { colaRegistros } from '../db/schema';
 import { useAuthStore } from './auth-store';
+import { archivoLocalFoto } from './fotos';
+
+/** Nombre de carpeta/archivo sin caracteres que rompan un zip o un explorador de archivos. */
+function sanear(texto: string): string {
+  return texto.replace(/[\\/:*?"<>|]/g, '-').trim() || 'sin-nombre';
+}
 
 const carpetaExportados = new Directory(Paths.document, 'exportados');
 
@@ -73,11 +80,48 @@ export async function exportarPendientes(): Promise<ResultadoExportarPendientes 
   archivo.create();
   archivo.write(base64, { encoding: 'base64' });
 
-  if (await Sharing.isAvailableAsync()) {
+  const disponible = await Sharing.isAvailableAsync();
+  if (disponible) {
     await Sharing.shareAsync(archivo.uri, {
       mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       dialogTitle: 'Exportar pendientes',
     });
+  }
+
+  // Las fotos NO van dentro del Excel (son binarios) ni se suben a ningún
+  // lado — es un respaldo aparte, solo para que el coordinador pueda revisar
+  // a mano lo que capturó cada auditor mientras estuvo sin señal. Una
+  // carpeta por activo (código + últimos 6 del clientId, por si el mismo
+  // código quedó auditado dos veces en la cola) con sus fotos adentro,
+  // nombradas por orden/etiqueta para reconocerlas de un vistazo.
+  const zip = new JSZip();
+  let huboFotos = false;
+  for (const p of pendientes) {
+    const fotos = JSON.parse(p.fotosJson) as FotoInput[];
+    if (fotos.length === 0) continue;
+    const carpeta = `${sanear(p.codigoAnteriorSnapshot ?? 'sin-codigo')}-${p.clientId.slice(-6)}`;
+    for (const foto of fotos) {
+      const local = archivoLocalFoto(foto.clientPhotoId);
+      if (!local.exists) continue;
+      const nombreArchivo = `${foto.orden}_${sanear(foto.etiqueta ?? 'foto')}.jpg`;
+      zip.file(`${carpeta}/${nombreArchivo}`, await local.bytes());
+      huboFotos = true;
+    }
+  }
+
+  if (huboFotos) {
+    const zipBase64 = await zip.generateAsync({ type: 'base64' });
+    const archivoZip = new File(carpetaExportados, `adn-fotos-pendientes-${fecha}-${pendientes.length}.zip`);
+    if (archivoZip.exists) archivoZip.delete();
+    archivoZip.create();
+    archivoZip.write(zipBase64, { encoding: 'base64' });
+
+    if (disponible) {
+      await Sharing.shareAsync(archivoZip.uri, {
+        mimeType: 'application/zip',
+        dialogTitle: 'Exportar fotos de pendientes',
+      });
+    }
   }
 
   return { archivo, cantidad: pendientes.length };
