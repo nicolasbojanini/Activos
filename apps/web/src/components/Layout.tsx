@@ -30,10 +30,11 @@ export function Layout({ children }: { children: ReactNode }) {
 
   // El rol Cliente es estrictamente de solo lectura sobre Auditorías/Reportes
   // — sin "Auditores" (gestión de personal de ADN) ni "Clientes" (que ya
-  // estaba limitado a ADN_ADMIN/COORDINADOR). El panel gerencial, por ahora,
-  // es exclusivo de ADN_ADMIN.
+  // estaba limitado a ADN_ADMIN/COORDINADOR). El panel gerencial sigue la
+  // misma regla: Coordinador ya ve todos los clientes en el resto de la web
+  // (ver TenantGuard), así que también le sirve la vista consolidada.
   const items = [
-    ...(usuario?.rol === 'ADN_ADMIN'
+    ...(usuario?.rol === 'ADN_ADMIN' || usuario?.rol === 'COORDINADOR'
       ? [{ to: '/dashboard', label: 'Panel gerencial', icon: LayoutDashboard, enabled: true }]
       : []),
     ...navItemsBase,

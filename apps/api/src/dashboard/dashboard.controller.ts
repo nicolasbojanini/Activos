@@ -14,7 +14,7 @@ import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe';
 @ApiTags('dashboard')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Rol.ADN_ADMIN)
+@Roles(Rol.ADN_ADMIN, Rol.COORDINADOR)
 @Controller('dashboard')
 export class DashboardController {
   constructor(private readonly dashboardService: DashboardService) {}

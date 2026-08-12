@@ -41,7 +41,7 @@ export function Dashboard() {
     };
   }, [proyectos]);
 
-  if (usuario && usuario.rol !== 'ADN_ADMIN') {
+  if (usuario && usuario.rol !== 'ADN_ADMIN' && usuario.rol !== 'COORDINADOR') {
     return <Navigate to="/auditorias" replace />;
   }
 
