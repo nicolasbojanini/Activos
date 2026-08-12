@@ -98,7 +98,14 @@ export function NoRegistradoScreen({ route, navigation }: Props) {
   };
 
   const onSubmit = async () => {
-    if (!proyecto) return;
+    // Antes esto salía en silencio si `proyecto` todavía no estaba
+    // disponible: el botón "no hacía nada" sin ningún aviso, y quien está
+    // auditando rápido en campo puede no notarlo y seguir de largo pensando
+    // que sí guardó. Ahora siempre hay una señal visible.
+    if (!proyecto) {
+      Alert.alert('No se pudo guardar', 'No se detectó el proyecto activo. Cierra y vuelve a abrir la app, luego intenta de nuevo.');
+      return;
+    }
 
     const vacio = (valor: string | null | undefined) => valor == null || valor.trim() === '';
     const faltantes: string[] = [];

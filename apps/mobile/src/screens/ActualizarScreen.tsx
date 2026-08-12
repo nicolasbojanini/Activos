@@ -193,7 +193,14 @@ export function ActualizarScreen({ route, navigation }: Props) {
   }, [resultado, ubicacionActiva, reset, campos, camposPersonalizados]);
 
   const onSubmit = async (values: FormValues) => {
-    if (!proyecto || !resultado) return;
+    // Antes esto salía en silencio si proyecto/resultado todavía no estaban
+    // listos: el botón "no hacía nada" sin ningún aviso — riesgo real de que
+    // el auditor crea que guardó y siga de largo (ver incidente Decameron
+    // DMZ 00465-00476, agosto 2026).
+    if (!proyecto || !resultado) {
+      Alert.alert('No se pudo guardar', 'Todavía se está cargando el activo. Espera un segundo e intenta de nuevo.');
+      return;
+    }
 
     // "Obligatorio" se exige acá, al guardar la auditoría — no al importar el
     // Excel (ver imports.service.ts). Esto permite que un cliente marque un
