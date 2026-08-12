@@ -43,6 +43,7 @@ import {
   pedirCarpetaPublica,
   yaSePidioCarpetaPublica,
 } from '../lib/carpeta-publica';
+import { abrirDescargaActualizacion, verificarActualizacion } from '../lib/actualizacion';
 import { useConectividad } from '../lib/useConectividad';
 import { CLAVE_SUGERENCIAS } from '../lib/useSugerencias';
 import type { RootStackParamList } from '../navigation/types';
@@ -297,6 +298,16 @@ export function InicioScreen({ navigation }: Props) {
     queryFn: obtenerCarpetaPublicaUri,
   });
 
+  // Aviso de actualización manual: revisa contra el último GitHub Release
+  // publicado por CI (ver actualizacion.ts) — no descarga ni instala sola,
+  // solo avisa. staleTime largo: no tiene sentido pegarle a la API de
+  // GitHub más de un par de veces al día por dispositivo.
+  const { data: actualizacion } = useQuery({
+    queryKey: ['actualizacion'],
+    queryFn: verificarActualizacion,
+    staleTime: 1000 * 60 * 60 * 6,
+  });
+
   const solicitarCarpetaPublica = () => {
     Alert.alert(
       'Elige una carpeta de respaldo',
@@ -490,6 +501,16 @@ export function InicioScreen({ navigation }: Props) {
               )}
             </View>
 
+            {actualizacion?.disponible && actualizacion.urlDescarga && (
+              <Pressable
+                style={styles.actualizacionBar}
+                onPress={() => abrirDescargaActualizacion(actualizacion.urlDescarga!)}
+              >
+                <RefreshCw size={14} color="#fff" />
+                <Text style={styles.actualizacionTexto}>Hay una actualización disponible — toca para descargarla</Text>
+              </Pressable>
+            )}
+
             {ubicacionActiva && (
               <View style={styles.ubicacionActivaBar}>
                 <MapPin size={14} color={colors.brand.blue} />
@@ -628,6 +649,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing[3],
   },
   ubicacionActivaTexto: { fontSize: 12, fontWeight: '600', color: colors.brand.blue },
+  actualizacionBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[2],
+    marginHorizontal: spacing[4],
+    marginBottom: spacing[3],
+    backgroundColor: colors.state.warning,
+    borderRadius: radius.md,
+    paddingVertical: spacing[2],
+    paddingHorizontal: spacing[3],
+  },
+  actualizacionTexto: { fontSize: 12, fontWeight: '600', color: '#fff', flexShrink: 1 },
   carpetaPublicaBar: {
     marginHorizontal: spacing[4],
     marginBottom: spacing[3],

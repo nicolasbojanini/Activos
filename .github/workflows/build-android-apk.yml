@@ -10,6 +10,9 @@ on:
       - 'packages/ui-tokens/**'
       - '.github/workflows/build-android-apk.yml'
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -31,10 +34,18 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      # Identificador corto de este build, horneado en la app (ver
+      # actualizacion.ts) para poder comparar "qué versión tengo instalada"
+      # contra la última publicada como GitHub Release.
+      - name: Calcular id de build
+        id: build_id
+        run: echo "sha_short=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
       - name: Expo prebuild (genera el proyecto nativo android/)
         working-directory: apps/mobile
         env:
           EXPO_PUBLIC_API_URL: https://api-production-1d41b.up.railway.app/api/v1
+          EXPO_PUBLIC_BUILD_ID: ${{ steps.build_id.outputs.sha_short }}
           SENTRY_DISABLE_AUTO_UPLOAD: 'true'
         run: npx expo prebuild --platform android --non-interactive
 
@@ -42,6 +53,7 @@ jobs:
         working-directory: apps/mobile/android
         env:
           EXPO_PUBLIC_API_URL: https://api-production-1d41b.up.railway.app/api/v1
+          EXPO_PUBLIC_BUILD_ID: ${{ steps.build_id.outputs.sha_short }}
           SENTRY_DISABLE_AUTO_UPLOAD: 'true'
         # La variante "debug" carga el JS desde un Metro corriendo en la
         # máquina del desarrollador (localhost:8081) — inútil para un APK que
@@ -50,9 +62,23 @@ jobs:
         # no necesita ningún keystore ni secreto adicional.
         run: ./gradlew assembleRelease --no-daemon
 
-      - name: Subir APK como artefacto descargable
+      - name: Subir APK como artefacto descargable (debug/histórico)
         uses: actions/upload-artifact@v4
         with:
           name: adn-auditoria-release
           path: apps/mobile/android/app/build/outputs/apk/release/app-release.apk
           retention-days: 14
+
+      # Fuente de verdad para la actualización manual: a diferencia del
+      # artefacto de arriba (requiere sesión de GitHub para bajarlo), el
+      # asset de un Release es un link público directo — lo que la app
+      # ofrece abrir cuando detecta que hay una versión más nueva, y lo que
+      # se le puede compartir a un auditor por WhatsApp sin pedirle que
+      # tenga acceso al repo.
+      - name: Publicar GitHub Release con el APK
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: apk-${{ steps.build_id.outputs.sha_short }}
+          name: APK ${{ steps.build_id.outputs.sha_short }}
+          files: apps/mobile/android/app/build/outputs/apk/release/app-release.apk
+          token: ${{ secrets.GITHUB_TOKEN }}
