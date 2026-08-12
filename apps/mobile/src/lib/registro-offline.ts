@@ -11,6 +11,7 @@ type FotoLocalConDimensiones = Pick<FotoCapturada, 'clientPhotoId' | 'etiqueta' 
 
 interface EncolarInput extends Omit<RegistroAuditoriaInput, 'fotos'> {
   codigoAnteriorSnapshot?: string;
+  codigoNuevoSnapshot?: string;
   nombreSnapshot?: string;
   fotos: FotoLocalConDimensiones[];
 }
@@ -30,6 +31,7 @@ export async function encolarRegistro(input: EncolarInput): Promise<void> {
     proyectoId: input.proyectoId,
     activoId: input.activoId,
     codigoAnteriorSnapshot: input.codigoAnteriorSnapshot ?? null,
+    codigoNuevoSnapshot: input.codigoNuevoSnapshot ?? null,
     nombreSnapshot: input.nombreSnapshot ?? null,
     estado: input.estado,
     estadoFisico: input.estadoFisico ?? null,
@@ -43,7 +45,7 @@ export async function encolarRegistro(input: EncolarInput): Promise<void> {
 
   // Respaldo permanente aparte de la copia de trabajo — nunca se borra, ni
   // siquiera después de sincronizar (ver archivarFotosLocal en fotos.ts).
-  await archivarFotosLocal(input.codigoAnteriorSnapshot ?? null, input.fotos);
+  await archivarFotosLocal(input.codigoAnteriorSnapshot ?? null, input.codigoNuevoSnapshot, input.fotos);
 
   // El espejo local refleja de una vez lo capturado (misma regla que aplica
   // el backend al sincronizar), así la ficha y las sugerencias dinámicas ven

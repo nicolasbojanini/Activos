@@ -186,10 +186,11 @@ export class ReportesService {
 
   /**
    * ZIP con fotos confirmadas del proyecto. Nombre de archivo de cada foto:
-   * siempre `{codigoAnterior}-{slot}.jpg` (slot = orden+1: 1=Vista general,
-   * 2=Placa/QR, etc.) — el mismo esquema que usa el respaldo local del
-   * celular, para que un coordinador reconozca la misma foto en los dos
-   * lados sin tener que adivinar.
+   * siempre `{código}-{slot}.jpg` (slot = orden+1: 1=Vista general,
+   * 2=Placa/QR, etc.), donde código es el codigoNuevo del activo, o el
+   * codigoAnterior si todavía no tiene uno nuevo asignado — el mismo
+   * esquema que usa el respaldo local del celular, para que un coordinador
+   * reconozca la misma foto en los dos lados sin tener que adivinar.
    *
    * Sin `desde`/`hasta`: comportamiento original — solo el último registro
    * de cada activo (una foto por activo por slot, sin importar cuántas
@@ -219,7 +220,7 @@ export class ReportesService {
 
     interface RegistroParaZip {
       id: string;
-      codigoAnterior: string;
+      codigo: string;
       auditadoEn: Date;
     }
 
@@ -237,7 +238,7 @@ export class ReportesService {
         select: {
           id: true,
           auditadoEn: true,
-          activo: { select: { codigoAnterior: true } },
+          activo: { select: { codigoAnterior: true, codigoNuevo: true } },
         },
         orderBy: { auditadoEn: 'asc' },
       });
@@ -245,7 +246,7 @@ export class ReportesService {
         .filter((f) => f.activo)
         .map((f) => ({
           id: f.id,
-          codigoAnterior: f.activo!.codigoAnterior,
+          codigo: f.activo!.codigoNuevo || f.activo!.codigoAnterior,
           auditadoEn: f.auditadoEn,
         }));
     } else {
@@ -256,7 +257,7 @@ export class ReportesService {
         );
       const activos = await tenantPrisma.activo.findMany({
         where: { deletedAt: null, id: { in: [...ultimoPorActivo.keys()] } },
-        select: { id: true, codigoAnterior: true },
+        select: { id: true, codigoAnterior: true, codigoNuevo: true },
       });
       registros = activos
         .map((activo): RegistroParaZip | null => {
@@ -264,7 +265,7 @@ export class ReportesService {
           return registro
             ? {
                 id: registro.id,
-                codigoAnterior: activo.codigoAnterior,
+                codigo: activo.codigoNuevo || activo.codigoAnterior,
                 auditadoEn: registro.auditadoEn,
               }
             : null;
@@ -290,21 +291,21 @@ export class ReportesService {
     const archive = new ZipArchive({ zlib: { level: 9 } });
 
     // El nombre es <código>-<slot> (slot = orden+1: 1=Vista general,
-    // 2=Placa/QR, etc.) — el mismo esquema que usa el respaldo local del
-    // celular (ver archivarFotosLocal en mobile), a propósito, para que un
-    // coordinador pueda reconocer la misma foto en los dos lados. Con el
-    // filtro de fechas, un activo reprocesado puede aportar más de un
-    // registro con el mismo slot — el nombre se repite adrede (no hay
-    // consecutivo que lo evite) y la fecha real de captura (auditadoEn) va
-    // como metadata del archivo dentro del zip, para que el coordinador
-    // pueda distinguir cuál es la más reciente por la fecha, no por el
-    // nombre.
+    // 2=Placa/QR, etc.), código = codigoNuevo o codigoAnterior de fallback —
+    // el mismo esquema que usa el respaldo local del celular (ver
+    // nombreArchivoFoto en mobile), a propósito, para que un coordinador
+    // pueda reconocer la misma foto en los dos lados. Con el filtro de
+    // fechas, un activo reprocesado puede aportar más de un registro con el
+    // mismo slot — el nombre se repite adrede (no hay consecutivo que lo
+    // evite) y la fecha real de captura (auditadoEn) va como metadata del
+    // archivo dentro del zip, para que el coordinador pueda distinguir cuál
+    // es la más reciente por la fecha, no por el nombre.
     const entradas: { s3Key: string; nombre: string; fecha: Date }[] = [];
     for (const registro of registros) {
       for (const foto of fotosPorRegistro.get(registro.id) ?? []) {
         entradas.push({
           s3Key: foto.s3Key,
-          nombre: `${registro.codigoAnterior}-${foto.orden + 1}.jpg`,
+          nombre: `${registro.codigo}-${foto.orden + 1}.jpg`,
           fecha: registro.auditadoEn,
         });
       }

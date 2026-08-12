@@ -51,6 +51,7 @@ export const colaRegistros = sqliteTable('cola_registros', {
   proyectoId: text('proyecto_id').notNull(),
   activoId: text('activo_id'),
   codigoAnteriorSnapshot: text('codigo_anterior_snapshot'),
+  codigoNuevoSnapshot: text('codigo_nuevo_snapshot'),
   nombreSnapshot: text('nombre_snapshot'),
   estado: text('estado').notNull(),
   estadoFisico: text('estado_fisico'),

@@ -7,7 +7,7 @@ import { COLUMNAS_EXPORT_PENDIENTES, type FotoInput } from '@adn/shared';
 import { db } from '../db/client';
 import { colaRegistros } from '../db/schema';
 import { useAuthStore } from './auth-store';
-import { archivoLocalFoto, sanear } from './fotos';
+import { archivoLocalFoto, nombreArchivoFoto } from './fotos';
 import { escribirEnCarpetaPublica } from './carpeta-publica';
 
 const carpetaExportados = new Directory(Paths.document, 'exportados');
@@ -88,7 +88,7 @@ export async function exportarPendientes(): Promise<ResultadoExportarPendientes 
     const fechaCaptura = new Date(p.auditadoEn);
     for (const foto of fotos) {
       fotosReferenciadas++;
-      const nombreArchivo = `${sanear(p.codigoAnteriorSnapshot ?? 'sin-codigo')}-${foto.orden + 1}.jpg`;
+      const nombreArchivo = nombreArchivoFoto(p.codigoAnteriorSnapshot, p.codigoNuevoSnapshot, foto.orden + 1);
       try {
         const local = archivoLocalFoto(foto.clientPhotoId);
         if (!local.exists) {

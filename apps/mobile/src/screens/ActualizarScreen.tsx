@@ -332,6 +332,7 @@ export function ActualizarScreen({ route, navigation }: Props) {
           alto,
         })),
         codigoAnteriorSnapshot: activo.codigoAnterior,
+        codigoNuevoSnapshot: activo.codigoNuevo || undefined,
         nombreSnapshot: activo.nombre,
       });
       void queryClient.invalidateQueries({ queryKey: ['resumen-local'] });

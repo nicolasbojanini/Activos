@@ -125,6 +125,7 @@ export function DetalleScreen({ route, navigation }: Props) {
         auditadoEn: new Date(),
         fotos: [],
         codigoAnteriorSnapshot: resultado.activo.codigoAnterior,
+        codigoNuevoSnapshot: resultado.activo.codigoNuevo || undefined,
         nombreSnapshot: resultado.activo.nombre,
       });
       invalidarLocal();

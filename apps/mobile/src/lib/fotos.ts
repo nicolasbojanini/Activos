@@ -18,6 +18,22 @@ export function sanear(texto: string): string {
 }
 
 /**
+ * Nombre de archivo para una foto: `{código}-{slot}.jpg`, código = codigoNuevo
+ * del activo, o codigoAnterior de fallback si todavía no tiene uno nuevo
+ * asignado. Mismo criterio que usa el ZIP del portal (ver generarZipFotos en
+ * reportes.service.ts, backend) — un mismo activo debe verse con el mismo
+ * nombre de foto en los dos lados.
+ */
+export function nombreArchivoFoto(
+  codigoAnterior: string | null | undefined,
+  codigoNuevo: string | null | undefined,
+  slot: number,
+): string {
+  const codigo = (codigoNuevo && codigoNuevo.trim()) || codigoAnterior || 'sin-codigo';
+  return `${sanear(codigo)}-${slot}.jpg`;
+}
+
+/**
  * Respaldo permanente: una copia de cada foto capturada, con el MISMO
  * esquema de nombre que usa la descarga de fotos del portal
  * (`{código}-{slot}.jpg`, slot = orden+1) — a propósito, para que un
@@ -53,6 +69,7 @@ function asegurarCarpetaArchivo() {
  */
 export async function archivarFotosLocal(
   codigoAnterior: string | null,
+  codigoNuevo: string | null | undefined,
   fotos: { clientPhotoId: string; etiqueta: string | null; orden: number }[],
 ) {
   if (fotos.length === 0) return;
@@ -60,7 +77,7 @@ export async function archivarFotosLocal(
   for (const foto of fotos) {
     const origen = archivoLocalFoto(foto.clientPhotoId);
     if (!origen.exists) continue;
-    const nombre = `${sanear(codigoAnterior ?? 'sin-codigo')}-${foto.orden + 1}.jpg`;
+    const nombre = nombreArchivoFoto(codigoAnterior, codigoNuevo, foto.orden + 1);
 
     try {
       const base64 = await origen.base64();

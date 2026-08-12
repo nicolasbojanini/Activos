@@ -63,6 +63,7 @@ export function inicializarBaseLocal() {
       proyecto_id TEXT NOT NULL,
       activo_id TEXT,
       codigo_anterior_snapshot TEXT,
+      codigo_nuevo_snapshot TEXT,
       nombre_snapshot TEXT,
       estado TEXT NOT NULL,
       estado_fisico TEXT,
@@ -116,6 +117,12 @@ export function inicializarBaseLocal() {
 
   try {
     sqlite.execSync(`ALTER TABLE cola_registros ADD COLUMN codigo_anterior_snapshot TEXT;`);
+  } catch {
+    // La columna ya existe (instalación nueva que la creó en el CREATE TABLE de arriba).
+  }
+
+  try {
+    sqlite.execSync(`ALTER TABLE cola_registros ADD COLUMN codigo_nuevo_snapshot TEXT;`);
   } catch {
     // La columna ya existe (instalación nueva que la creó en el CREATE TABLE de arriba).
   }
