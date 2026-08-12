@@ -37,6 +37,12 @@ import {
 } from '../db/sync';
 import { sincronizarPendientes } from '../lib/registro-offline';
 import { exportarPendientes } from '../lib/exportar-pendientes';
+import {
+  descartarPeticionCarpetaPublica,
+  obtenerCarpetaPublicaUri,
+  pedirCarpetaPublica,
+  yaSePidioCarpetaPublica,
+} from '../lib/carpeta-publica';
 import { useConectividad } from '../lib/useConectividad';
 import { CLAVE_SUGERENCIAS } from '../lib/useSugerencias';
 import type { RootStackParamList } from '../navigation/types';
@@ -281,6 +287,47 @@ export function InicioScreen({ navigation }: Props) {
     },
   });
 
+  // La carpeta pública es donde el respaldo de fotos y los exports de
+  // pendientes quedan visibles conectando el celular por USB (ver
+  // carpeta-publica.ts) — el almacenamiento interno de la app no lo es. Se
+  // pide una sola vez, con explicación, apenas hay sesión; si el auditor la
+  // ignora queda disponible el enlace manual de abajo.
+  const { data: carpetaPublicaUri } = useQuery({
+    queryKey: ['carpeta-publica'],
+    queryFn: obtenerCarpetaPublicaUri,
+  });
+
+  const solicitarCarpetaPublica = () => {
+    Alert.alert(
+      'Elige una carpeta de respaldo',
+      'Para poder recuperar tus fotos conectando el celular a una PC por USB si algo falla, elige dónde guardarlas — se recomienda "Download" o "Descargas".',
+      [
+        {
+          text: 'Ahora no',
+          style: 'cancel',
+          onPress: () => void descartarPeticionCarpetaPublica(),
+        },
+        {
+          text: 'Elegir carpeta',
+          onPress: () =>
+            void (async () => {
+              const uri = await pedirCarpetaPublica();
+              if (uri) void queryClient.invalidateQueries({ queryKey: ['carpeta-publica'] });
+            })(),
+        },
+      ],
+    );
+  };
+
+  useEffect(() => {
+    if (!clienteId) return;
+    void (async () => {
+      if (await yaSePidioCarpetaPublica()) return;
+      solicitarCarpetaPublica();
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clienteId]);
+
   const kpis = [
     { key: 'auditados', label: 'Auditados', value: resumen?.auditados ?? 0, color: colors.state.success },
     { key: 'pendientes', label: 'Pendientes', value: resumen?.pendientes ?? 0, color: colors.ink[500] },
@@ -450,6 +497,12 @@ export function InicioScreen({ navigation }: Props) {
               </View>
             )}
 
+            {!carpetaPublicaUri && (
+              <Pressable style={styles.carpetaPublicaBar} onPress={solicitarCarpetaPublica}>
+                <Text style={styles.carpetaPublicaTexto}>Configurar carpeta de respaldo (visible por USB)</Text>
+              </Pressable>
+            )}
+
             <View style={styles.kpiRow}>
               {kpis.map((kpi) => (
                 <View key={kpi.key} style={styles.kpiCard}>
@@ -575,6 +628,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing[3],
   },
   ubicacionActivaTexto: { fontSize: 12, fontWeight: '600', color: colors.brand.blue },
+  carpetaPublicaBar: {
+    marginHorizontal: spacing[4],
+    marginBottom: spacing[3],
+    paddingVertical: spacing[2],
+    paddingHorizontal: spacing[3],
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.ink[200],
+    borderStyle: 'dashed',
+  },
+  carpetaPublicaTexto: { fontSize: 12, fontWeight: '600', color: colors.ink[500], textAlign: 'center' },
   kpiRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',

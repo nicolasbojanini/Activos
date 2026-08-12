@@ -2,6 +2,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { Directory, File, Paths } from 'expo-file-system';
 import * as Crypto from 'expo-crypto';
+import { escribirEnCarpetaPublica } from './carpeta-publica';
 
 const carpetaFotos = new Directory(Paths.document, 'fotos');
 
@@ -42,19 +43,35 @@ function asegurarCarpetaArchivo() {
   }
 }
 
-/** Copia cada foto ya capturada (por clientPhotoId) al respaldo permanente. No falla si alguna ya no existe localmente. */
-export function archivarFotosLocal(
+/**
+ * Copia cada foto ya capturada (por clientPhotoId) al respaldo permanente. No
+ * falla si alguna ya no existe localmente. Si el auditor ya eligió una
+ * carpeta pública (ver carpeta-publica.ts), el respaldo va ahí — visible por
+ * USB. Si todavía no la eligió, o la escritura pública falla, cae al
+ * almacenamiento interno de siempre como red de seguridad (no visible por
+ * USB, pero nunca se pierde la foto).
+ */
+export async function archivarFotosLocal(
   codigoAnterior: string | null,
   fotos: { clientPhotoId: string; etiqueta: string | null; orden: number }[],
 ) {
   if (fotos.length === 0) return;
-  asegurarCarpetaArchivo();
 
   for (const foto of fotos) {
     const origen = archivoLocalFoto(foto.clientPhotoId);
     if (!origen.exists) continue;
-    const destino = new File(carpetaArchivo, `${sanear(codigoAnterior ?? 'sin-codigo')}-${foto.orden + 1}.jpg`);
+    const nombre = `${sanear(codigoAnterior ?? 'sin-codigo')}-${foto.orden + 1}.jpg`;
+
     try {
+      const base64 = await origen.base64();
+      if (await escribirEnCarpetaPublica(nombre, base64, 'image/jpeg')) continue;
+    } catch {
+      // Sigue al respaldo interno.
+    }
+
+    try {
+      asegurarCarpetaArchivo();
+      const destino = new File(carpetaArchivo, nombre);
       if (destino.exists) destino.delete();
       origen.copy(destino);
     } catch {

@@ -43,7 +43,7 @@ export async function encolarRegistro(input: EncolarInput): Promise<void> {
 
   // Respaldo permanente aparte de la copia de trabajo — nunca se borra, ni
   // siquiera después de sincronizar (ver archivarFotosLocal en fotos.ts).
-  archivarFotosLocal(input.codigoAnteriorSnapshot ?? null, input.fotos);
+  await archivarFotosLocal(input.codigoAnteriorSnapshot ?? null, input.fotos);
 
   // El espejo local refleja de una vez lo capturado (misma regla que aplica
   // el backend al sincronizar), así la ficha y las sugerencias dinámicas ven
