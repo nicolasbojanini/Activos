@@ -36,7 +36,11 @@ jobs:
 
       # Identificador corto de este build, horneado en la app (ver
       # actualizacion.ts) para poder comparar "qué versión tengo instalada"
-      # contra la última publicada como GitHub Release.
+      # contra la última publicada como GitHub Release. github.run_number
+      # (EXPO_PUBLIC_BUILD_NUMBER, abajo) es el número humano-legible que se
+      # muestra en la pantalla de inicio (ver InicioScreen.tsx) — sube 1 por
+      # cada build, a diferencia del hash de commit, que no sirve para que un
+      # coordinador le pregunte a un auditor "qué número ves" por teléfono.
       - name: Calcular id de build
         id: build_id
         run: echo "sha_short=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
@@ -46,6 +50,7 @@ jobs:
         env:
           EXPO_PUBLIC_API_URL: https://api-production-1d41b.up.railway.app/api/v1
           EXPO_PUBLIC_BUILD_ID: ${{ steps.build_id.outputs.sha_short }}
+          EXPO_PUBLIC_BUILD_NUMBER: ${{ github.run_number }}
           SENTRY_DISABLE_AUTO_UPLOAD: 'true'
         run: npx expo prebuild --platform android --non-interactive
 
@@ -54,6 +59,7 @@ jobs:
         env:
           EXPO_PUBLIC_API_URL: https://api-production-1d41b.up.railway.app/api/v1
           EXPO_PUBLIC_BUILD_ID: ${{ steps.build_id.outputs.sha_short }}
+          EXPO_PUBLIC_BUILD_NUMBER: ${{ github.run_number }}
           SENTRY_DISABLE_AUTO_UPLOAD: 'true'
         # La variante "debug" carga el JS desde un Metro corriendo en la
         # máquina del desarrollador (localhost:8081) — inútil para un APK que

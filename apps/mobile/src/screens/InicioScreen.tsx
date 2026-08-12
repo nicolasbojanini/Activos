@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  AppState,
   FlatList,
   Image,
   Pressable,
@@ -56,6 +57,19 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Inicio'>;
 // numberOfLines={1}): filas uniformes miden más rápido y evitan saltos de
 // layout durante el scroll.
 const ALTO_FILA = 80;
+
+/** Activos auditados sin carpeta pública configurada antes de repetir el aviso, esta vez bloqueante. */
+const UMBRAL_ESCALADA_CARPETA_PUBLICA = 20;
+
+/**
+ * Número de build legible para verificar por teléfono que todo el equipo
+ * tiene la misma versión instalada — sube 1 por cada build de CI
+ * (EXPO_PUBLIC_BUILD_NUMBER = github.run_number, ver build-android-apk.yml),
+ * a diferencia del hash de commit que usa actualizacion.ts (útil para
+ * comparar contra GitHub, inútil para preguntar "qué número ves"). El "1."
+ * es la versión mayor de app.json — actualizar acá si esa cambia.
+ */
+const VERSION_APP = `v1.${process.env.EXPO_PUBLIC_BUILD_NUMBER ?? 'dev'}`;
 
 // Fila memoizada: con miles de activos, re-crear el render de cada fila visible
 // cuando cambia cualquier otro estado de la pantalla (KPIs, sync, búsqueda)
@@ -112,7 +126,7 @@ export function InicioScreen({ navigation }: Props) {
     ]);
   };
 
-  const invalidarLocal = () => {
+  const invalidarLocal = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: ['proyecto-local'] });
     void queryClient.invalidateQueries({ queryKey: ['resumen-local'] });
     void queryClient.invalidateQueries({ queryKey: ['activos-local'] });
@@ -121,9 +135,9 @@ export function InicioScreen({ navigation }: Props) {
     // El espejo cambió: las sugerencias dinámicas se recalculan (se cachean
     // indefinidamente justo porque solo dependen del espejo).
     void queryClient.invalidateQueries({ queryKey: [CLAVE_SUGERENCIAS] });
-  };
+  }, [queryClient]);
 
-  const ejecutarSincronizacion = async () => {
+  const ejecutarSincronizacion = useCallback(async () => {
     setSincronizando(true);
     try {
       await sincronizarPendientes();
@@ -131,7 +145,7 @@ export function InicioScreen({ navigation }: Props) {
     } finally {
       setSincronizando(false);
     }
-  };
+  }, [invalidarLocal]);
 
   // Fallback para sitios sin señal en absoluto: exporta la cola pendiente a
   // un .xlsx para transportar a mano a una PC con red. No toca la cola local
@@ -164,6 +178,20 @@ export function InicioScreen({ navigation }: Props) {
   };
 
   const conectado = useConectividad(() => void ejecutarSincronizacion());
+
+  // Con señal mala/intermitente, la transición offline→online de NetInfo casi
+  // nunca se dispara (la conexión no llega a caerse del todo) — sin esto, el
+  // único disparador automático de sync quedaba en manos del auditor
+  // acordándose de tocar "Sincronizar ahora". Reintentar cada vez que la app
+  // vuelve a primer plano (incluida la vuelta de la cámara nativa tras cada
+  // foto) cubre ese caso sin costo real: sincronizarPendientes ya vuelve
+  // rápido cuando no hay nada pendiente.
+  useEffect(() => {
+    const suscripcion = AppState.addEventListener('change', (siguiente) => {
+      if (siguiente === 'active') void ejecutarSincronizacion();
+    });
+    return () => suscripcion.remove();
+  }, [ejecutarSincronizacion]);
 
   // Delta: trae solo lo que cambió en el servidor desde la última sincronización
   // (ediciones web, re-imports, capturas de otros auditores) en vez de
@@ -339,6 +367,37 @@ export function InicioScreen({ navigation }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clienteId]);
 
+  // El aviso inicial de arriba es descartable con un toque y fácil de perder
+  // en el apuro del primer día (ver incidente Decameron DMZ 00465-00476,
+  // agosto 2026) — sin carpeta configurada, el respaldo local cae en
+  // silencio al almacenamiento interno, que no se puede rescatar por USB si
+  // el sync nunca termina. Pasado el umbral de activos auditados sin haber
+  // elegido carpeta, se repite el aviso una vez por sesión, esta vez sin
+  // poder descartarlo tocando afuera — para que quede claro que no es un
+  // detalle menor.
+  const [escaladaCarpetaMostrada, setEscaladaCarpetaMostrada] = useState(false);
+  useEffect(() => {
+    if (carpetaPublicaUri || escaladaCarpetaMostrada) return;
+    if ((resumen?.auditados ?? 0) < UMBRAL_ESCALADA_CARPETA_PUBLICA) return;
+    setEscaladaCarpetaMostrada(true);
+    Alert.alert(
+      'Configura la carpeta de respaldo',
+      `Ya auditaste ${resumen!.auditados} activos sin elegir dónde respaldar las fotos por USB. Si el celular pasa mucho tiempo sin señal, es la única forma de rescatarlas a mano.`,
+      [
+        { text: 'Más tarde', style: 'cancel' },
+        {
+          text: 'Elegir carpeta',
+          onPress: () =>
+            void (async () => {
+              const uri = await pedirCarpetaPublica();
+              if (uri) void queryClient.invalidateQueries({ queryKey: ['carpeta-publica'] });
+            })(),
+        },
+      ],
+      { cancelable: false },
+    );
+  }, [resumen, carpetaPublicaUri, escaladaCarpetaMostrada, queryClient]);
+
   const kpis = [
     { key: 'auditados', label: 'Auditados', value: resumen?.auditados ?? 0, color: colors.state.success },
     { key: 'pendientes', label: 'Pendientes', value: resumen?.pendientes ?? 0, color: colors.ink[500] },
@@ -417,6 +476,7 @@ export function InicioScreen({ navigation }: Props) {
           </Pressable>
         </View>
 
+        <Text style={styles.versionTexto}>{VERSION_APP}</Text>
         <Text style={styles.eyebrow}>SESIÓN DE AUDITORÍA</Text>
         <Text style={styles.proyectoNombre} numberOfLines={2}>
           {proyecto?.nombre ?? 'Cargando…'}
@@ -606,6 +666,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   avatarLabel: { color: '#fff', fontWeight: '600', fontSize: 13 },
+  versionTexto: {
+    marginTop: spacing[2],
+    fontSize: 10,
+    color: 'rgba(255,255,255,0.5)',
+  },
   eyebrow: {
     marginTop: spacing[6],
     fontSize: 11,

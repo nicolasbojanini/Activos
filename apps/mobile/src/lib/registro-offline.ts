@@ -83,7 +83,16 @@ async function subirYConfirmarFotos(
   const resultados = await Promise.all(
     uploads.map(async (upload) => {
       const archivo = archivoLocalFoto(upload.clientPhotoId);
-      if (!archivo.exists) return null; // ya se subió antes o no aplica
+      // El backend (crearRegistro) ya filtra `uploads` a solo las fotos con
+      // bytes:null — si esta foto está acá, el servidor SIGUE esperándola. Que
+      // el archivo de trabajo no exista nunca es "ya se subió antes": es
+      // pérdida real (archivo borrado antes de confirmar) y hay que tratarla
+      // como fallo para que se reintente, no darla por buena en silencio (ver
+      // incidente Decameron DMZ 00465-00476, agosto 2026).
+      if (!archivo.exists) {
+        console.warn('[sync] foto sin archivo local al subir, se reintentará', upload.clientPhotoId);
+        return undefined;
+      }
 
       const metadata = fotosLocal.find((f) => f.clientPhotoId === upload.clientPhotoId);
       const respuesta = await uploadAsync(upload.uploadUrl, archivo.uri, {
