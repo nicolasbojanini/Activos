@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -137,12 +137,26 @@ export function InicioScreen({ navigation }: Props) {
     void queryClient.invalidateQueries({ queryKey: [CLAVE_SUGERENCIAS] });
   }, [queryClient]);
 
+  // Candado contra ejecuciones superpuestas: el botón manual ya se deshabilita
+  // con `sincronizando`, pero el listener de AppState de abajo puede disparar
+  // varias veces seguidas en poco tiempo (cada vuelta de la cámara nativa
+  // cuenta como un ciclo foreground) — sin este ref, cada disparo arrancaba
+  // su propio sincronizarPendientes() en paralelo, apilando varias subidas de
+  // fotos (4 concurrentes cada una) mientras el auditor seguía llenando el
+  // formulario, y eso era lo que colgaba/tumbaba la app en celulares de gama
+  // baja (incidente Decameron, agosto 2026). Un ref, no `sincronizando`
+  // (state): el chequeo tiene que ser síncrono e inmediato, sin esperar a que
+  // React re-renderice.
+  const sincronizandoRef = useRef(false);
   const ejecutarSincronizacion = useCallback(async () => {
+    if (sincronizandoRef.current) return;
+    sincronizandoRef.current = true;
     setSincronizando(true);
     try {
       await sincronizarPendientes();
       invalidarLocal();
     } finally {
+      sincronizandoRef.current = false;
       setSincronizando(false);
     }
   }, [invalidarLocal]);
