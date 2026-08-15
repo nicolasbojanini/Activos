@@ -332,7 +332,15 @@ export function ActualizarScreen({ route, navigation }: Props) {
           alto,
         })),
         codigoAnteriorSnapshot: activo.codigoAnterior,
-        codigoNuevoSnapshot: activo.codigoNuevo || undefined,
+        // codigoNuevo puede asignarse recién en ESTA misma auditoría (es un
+        // campo dinámico editable, ver valorActualCampoExtra) — usar
+        // valoresExtra.codigoNuevo (el valor que el auditor acaba de escribir,
+        // ya viaja en `cambios` hacia el servidor) en vez de activo.codigoNuevo
+        // (el valor de ANTES de este guardado). Si no cambió, ambos coinciden;
+        // si sí, esto evita que la foto se archive con el código viejo aunque
+        // el servidor ya haya quedado con el nuevo (reporte Decameron DMA,
+        // agosto 2026).
+        codigoNuevoSnapshot: valoresExtra.codigoNuevo || activo.codigoNuevo || undefined,
         nombreSnapshot: activo.nombre,
       });
       void queryClient.invalidateQueries({ queryKey: ['resumen-local'] });
