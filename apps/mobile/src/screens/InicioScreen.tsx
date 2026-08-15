@@ -61,8 +61,14 @@ const ALTO_FILA = 80;
 /** Activos auditados sin carpeta pública configurada antes de repetir el aviso, esta vez bloqueante. */
 const UMBRAL_ESCALADA_CARPETA_PUBLICA = 20;
 
+// Cada registro ya sincroniza casi al instante por su cuenta al guardar (ver
+// intentarSincronizar en registro-offline.ts, disparado directo desde
+// encolarRegistro) — este enfriamiento solo protege el respaldo de "volver a
+// primer plano" para cuando esa vía falló (mala señal). Un rezago de hasta
+// 20 minutos ahí es aceptable a cambio de no competir por CPU/red con la
+// cámara en cada foto.
 /** Enfriamiento entre sincronizaciones disparadas por volver a primer plano (ver useEffect de AppState). */
-const ULTIMO_INTENTO_MIN_MS = 20_000;
+const ULTIMO_INTENTO_MIN_MS = 20 * 60 * 1000;
 
 /**
  * Número de build legible para verificar por teléfono que todo el equipo
