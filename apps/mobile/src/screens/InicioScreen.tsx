@@ -61,6 +61,9 @@ const ALTO_FILA = 80;
 /** Activos auditados sin carpeta pública configurada antes de repetir el aviso, esta vez bloqueante. */
 const UMBRAL_ESCALADA_CARPETA_PUBLICA = 20;
 
+/** Enfriamiento entre sincronizaciones disparadas por volver a primer plano (ver useEffect de AppState). */
+const ULTIMO_INTENTO_MIN_MS = 20_000;
+
 /**
  * Número de build legible para verificar por teléfono que todo el equipo
  * tiene la misma versión instalada — sube 1 por cada build de CI
@@ -197,12 +200,27 @@ export function InicioScreen({ navigation }: Props) {
   // nunca se dispara (la conexión no llega a caerse del todo) — sin esto, el
   // único disparador automático de sync quedaba en manos del auditor
   // acordándose de tocar "Sincronizar ahora". Reintentar cada vez que la app
-  // vuelve a primer plano (incluida la vuelta de la cámara nativa tras cada
-  // foto) cubre ese caso sin costo real: sincronizarPendientes ya vuelve
-  // rápido cuando no hay nada pendiente.
+  // vuelve a primer plano cubre ese caso sin depender de NetInfo.
+  //
+  // PERO "primer plano" incluye la vuelta de la cámara nativa tras CADA foto
+  // (ver capturarFoto en fotos.ts, usa launchCameraAsync) — sin este
+  // enfriamiento, cada foto disparaba una sincronización completa justo en
+  // el peor momento: mientras manipulateAsync todavía está recomprimiendo esa
+  // misma foto, compitiendo por CPU/red y sintiéndose como que la app se
+  // queda pensando entre foto y foto (reporte Decameron, agosto 2026). El
+  // candado de arriba evita que se pisen dos sincronizaciones, pero no evita
+  // que UNA sincronización nueva arranque en cada regreso de cámara — este
+  // enfriamiento sí: solo deja pasar un intento por foreground si ya pasaron
+  // unos segundos desde el último (cubre igual el caso real de "recuperó
+  // señal después de un rato sin la app abierta").
+  const ultimoIntentoRef = useRef(0);
   useEffect(() => {
     const suscripcion = AppState.addEventListener('change', (siguiente) => {
-      if (siguiente === 'active') void ejecutarSincronizacion();
+      if (siguiente !== 'active') return;
+      const ahora = Date.now();
+      if (ahora - ultimoIntentoRef.current < ULTIMO_INTENTO_MIN_MS) return;
+      ultimoIntentoRef.current = ahora;
+      void ejecutarSincronizacion();
     });
     return () => suscripcion.remove();
   }, [ejecutarSincronizacion]);
