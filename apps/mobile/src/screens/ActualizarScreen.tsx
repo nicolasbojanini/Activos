@@ -18,8 +18,7 @@ import { registrarValoresUsados, useSugerencias } from '../lib/useSugerencias';
 import { CampoTextoConSugerencias } from '../components/CampoTextoConSugerencias';
 import { calcularReubicacionAutomatica } from '../lib/ubicacion-relocate';
 import { CLAVE_UBICACION_BASE, exigirUbicacionActiva, useUbicacionActivaStore } from '../lib/ubicacion-activa-store';
-import { eliminarFotoLocal, type FotoCapturada } from '../lib/fotos';
-import { CamaraFoto, type DestinoFoto } from '../components/CamaraFoto';
+import { capturarFoto, eliminarFotoLocal, type FotoCapturada } from '../lib/fotos';
 import {
   borrarBorrador,
   descartarBorrador,
@@ -124,7 +123,6 @@ export function ActualizarScreen({ route, navigation }: Props) {
   const [borrador, setBorrador] = useState<BorradorAuditoria | null>(null);
   const [borradorCargado, setBorradorCargado] = useState(false);
   const [borradorRecuperado, setBorradorRecuperado] = useState(false);
-  const [destinoFoto, setDestinoFoto] = useState<DestinoFoto | null>(null);
   const queryClient = useQueryClient();
 
   const esVisible = (campo: string) => campos.find((c) => c.campo === campo)?.visible ?? true;
@@ -263,7 +261,7 @@ export function ActualizarScreen({ route, navigation }: Props) {
    * después aparezca como "recuperamos lo que habías ingresado".
    */
   const guardarBorradorSiHayAlgo = useCallback(
-    (fotosOverride?: FotoCapturada[]) => {
+    async (fotosOverride?: FotoCapturada[]) => {
       const base = baseRef.current;
       if (!base || !borradorCargado) return;
 
@@ -278,31 +276,30 @@ export function ActualizarScreen({ route, navigation }: Props) {
       );
 
       if (fotosActuales.length === 0 && !cambioForm && !cambioExtra) {
-        void borrarBorrador(activoId);
+        await borrarBorrador(activoId);
         return;
       }
-      void guardarBorrador(activoId, { form, valoresExtra: valoresExtraActual, fotos: fotosActuales });
+      await guardarBorrador(activoId, { form, valoresExtra: valoresExtraActual, fotos: fotosActuales });
     },
     [activoId, borradorCargado, getValues],
   );
 
-  const handleCapturarFoto = (etiqueta: string, orden: number) => {
-    // Se guarda el borrador antes de abrir la cámara. Con la cámara embebida ya
-    // no salimos a segundo plano, así que el riesgo de que Android nos mate acá
-    // bajó mucho — pero sigue habiendo presión de memoria mientras el sensor
-    // está tomado, y esto cuesta una escritura chica a SQLite.
-    guardarBorradorSiHayAlgo();
-    setDestinoFoto({ etiqueta, orden });
-  };
+  const handleCapturarFoto = async (etiqueta: string, orden: number) => {
+    // Se ESPERA a que el borrador quede en disco antes de abrir la cámara del
+    // sistema. Abrirla nos manda a segundo plano, que es justo donde Android
+    // puede matar el proceso para darle memoria a la cámara; si arranca sin
+    // haber terminado de escribir, se pierde lo que el auditor ya había puesto.
+    await guardarBorradorSiHayAlgo();
 
-  const handleFotoCapturada = (foto: FotoCapturada) => {
-    setDestinoFoto(null);
+    const foto = await capturarFoto(etiqueta, orden);
+    if (!foto) return;
+
     // Se persiste con la lista nueva en mano: enPantallaRef todavía tiene la
     // vieja (el render con el estado nuevo aún no ocurrió) y perder la foto
     // recién tomada es justo lo que hay que evitar.
     const siguientes = [...enPantallaRef.current.fotos.filter((f) => f.orden !== foto.orden), foto];
     setFotos(siguientes);
-    guardarBorradorSiHayAlgo(siguientes);
+    void guardarBorradorSiHayAlgo(siguientes);
   };
 
   const handleQuitarFoto = (orden: number) => {
@@ -310,7 +307,7 @@ export function ActualizarScreen({ route, navigation }: Props) {
     if (foto) eliminarFotoLocal(foto.clientPhotoId);
     const siguientes = enPantallaRef.current.fotos.filter((f) => f.orden !== orden);
     setFotos(siguientes);
-    guardarBorradorSiHayAlgo(siguientes);
+    void guardarBorradorSiHayAlgo(siguientes);
   };
 
   const handleDescartarBorrador = () => {
@@ -327,9 +324,9 @@ export function ActualizarScreen({ route, navigation }: Props) {
   // morir por otras razones (presión de memoria, el sistema reciclando la app en
   // segundo plano) y cada guardado cuesta una escritura chica a SQLite.
   useEffect(() => {
-    const intervalo = setInterval(() => guardarBorradorSiHayAlgo(), 15_000);
+    const intervalo = setInterval(() => void guardarBorradorSiHayAlgo(), 15_000);
     const suscripcion = AppState.addEventListener('change', (siguiente) => {
-      if (siguiente !== 'active') guardarBorradorSiHayAlgo();
+      if (siguiente !== 'active') void guardarBorradorSiHayAlgo();
     });
     return () => {
       clearInterval(intervalo);
@@ -708,7 +705,12 @@ export function ActualizarScreen({ route, navigation }: Props) {
         />
         {errors.nota && <Text style={styles.errorTexto}>{errors.nota.message}</Text>}
 
-        <FotosGrid fotos={fotos} onCapturar={handleCapturarFoto} onQuitar={handleQuitarFoto} fotoObligatoria={fotoObligatoria} />
+        <FotosGrid
+          fotos={fotos}
+          onCapturar={(etiqueta, orden) => void handleCapturarFoto(etiqueta, orden)}
+          onQuitar={handleQuitarFoto}
+          fotoObligatoria={fotoObligatoria}
+        />
       </ScrollView>
 
       <SafeAreaView edges={['bottom']} style={styles.acciones}>
@@ -725,12 +727,6 @@ export function ActualizarScreen({ route, navigation }: Props) {
           </View>
         </View>
       </SafeAreaView>
-
-      <CamaraFoto
-        destino={destinoFoto}
-        onCapturada={handleFotoCapturada}
-        onCancelar={() => setDestinoFoto(null)}
-      />
     </View>
   );
 }

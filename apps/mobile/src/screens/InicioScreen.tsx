@@ -208,15 +208,13 @@ export function InicioScreen({ navigation }: Props) {
   // acordándose de tocar "Sincronizar ahora". Reintentar cada vez que la app
   // vuelve a primer plano cubre ese caso sin depender de NetInfo.
   //
-  // El enfriamiento existe porque "volver a primer plano" solía dispararse una
-  // vez POR FOTO: se abría la app de cámara del sistema, y al volver arrancaba
-  // una sincronización completa justo mientras se recomprimía esa misma foto
-  // (reporte Decameron, agosto 2026). Las fotos ya se toman dentro de la app
-  // (ver CamaraFoto.tsx), así que ese disparador desapareció — pero el
-  // enfriamiento se mantiene: sigue cubriendo cualquier otro rebote de primer
-  // plano (una llamada entrante, bloquear y desbloquear la pantalla) y el
-  // rezago no importa, porque cada registro ya intenta sincronizarse solo al
-  // guardarse. Esto es la red de seguridad para cuando ese intento falló.
+  // El enfriamiento existe porque "volver a primer plano" se dispara una vez POR
+  // FOTO: se abre la app de cámara del sistema, y al volver arrancaba una
+  // sincronización completa justo mientras se recomprimía esa misma foto
+  // (reporte Decameron, agosto 2026). Con 20 minutos, tomar las 4 fotos de un
+  // activo dispara como mucho una. El rezago no importa, porque cada registro
+  // ya intenta sincronizarse solo al guardarse: esto es la red de seguridad
+  // para cuando ese intento falló.
   const ultimoIntentoRef = useRef(0);
   useEffect(() => {
     const suscripcion = AppState.addEventListener('change', (siguiente) => {

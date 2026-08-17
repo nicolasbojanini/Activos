@@ -36,8 +36,8 @@ export function FotosGrid({ fotos, onCapturar, onQuitar, fotoObligatoria }: Foto
               {foto ? (
                 <>
                   {/* resizeMethod="resize": sin esto Android decodifica el JPEG
-                      completo (1600px de ancho, ~7MB de bitmap) para pintarlo en
-                      76x76 — con las 4 fotos son decenas de MB retenidos justo
+                      completo (1024px de ancho, ~3MB de bitmap) para pintarlo en
+                      76x76 — con las 4 fotos son varios MB retenidos justo
                       cuando la cámara nativa pide memoria, y eso es lo que hace
                       que el sistema elija matar esta app (ver borrador-auditoria.ts). */}
                   <Image source={{ uri: foto.localUri }} style={styles.thumb} resizeMethod="resize" />
