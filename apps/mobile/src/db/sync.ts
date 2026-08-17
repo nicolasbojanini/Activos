@@ -1,5 +1,4 @@
 import { eq, and, or, asc, inArray, sql } from 'drizzle-orm';
-import type { AnySQLiteColumn } from 'drizzle-orm/sqlite-core';
 import type {
   ActivoSesionOutput,
   CampoPersonalizadoOutput,
@@ -9,7 +8,7 @@ import type {
   ProyectoOutput,
   UbicacionOutput,
 } from '@adn/shared';
-import { db } from './client';
+import { db, sqlite } from './client';
 import { activosLocal, colaRegistros, metaSesion, ubicacionesLocal } from './schema';
 import { getConfiguracionCampos, getSesionActivos, getUbicaciones } from '../lib/services';
 
@@ -493,64 +492,79 @@ export async function aplicarCambiosAlEspejoLocal(
   await db.update(activosLocal).set(set).where(eq(activosLocal.id, activoId));
 }
 
-/** Columnas estándar de texto libre elegibles para sugerencias — debe coincidir con campos-catalogo.ts (permiteSugerencias). */
-const COLUMNA_SUGERENCIA_POR_CAMPO = {
-  nombre: activosLocal.nombre,
-  descripcion: activosLocal.descripcion,
-  color: activosLocal.color,
-  medidas: activosLocal.medidas,
-  capacidad: activosLocal.capacidad,
-  marca: activosLocal.marca,
-  modelo: activosLocal.modelo,
-  serie: activosLocal.serie,
-  responsable: activosLocal.responsable,
-  centroCosto: activosLocal.centroCosto,
-  proveedor: activosLocal.proveedor,
-} as const;
+/**
+ * Columna SQL por campo estándar elegible para sugerencias — debe coincidir con
+ * campos-catalogo.ts (permiteSugerencias). Es un allowlist cerrado: nada de acá
+ * viene del usuario, así que interpolar el nombre en el SQL de abajo es seguro
+ * (el id de campo personalizado, que sí es dato, va como parámetro ligado).
+ */
+const COLUMNA_SQL_SUGERENCIA_POR_CAMPO: Record<string, string | undefined> = {
+  nombre: 'nombre',
+  descripcion: 'descripcion',
+  color: 'color',
+  medidas: 'medidas',
+  capacidad: 'capacidad',
+  marca: 'marca',
+  modelo: 'modelo',
+  serie: 'serie',
+  responsable: 'responsable',
+  centroCosto: 'centro_costo',
+  proveedor: 'proveedor',
+};
 
 const LIMITE_SUGERENCIAS = 50;
 
 /**
- * Valores distintos que ya existen en el espejo local para un campo estándar
- * de la ficha, de más a menos frecuentes — "lo que el equipo ya escribió en
- * este proyecto" (todo el mirror es de un solo proyecto a la vez). Se agrupa
- * por `lower(trim(valor))` para no separar "Negro" de "negro ", pero se
- * expone el valor tal cual quedó escrito la primera vez que apareció ese
- * grupo — así el auditor ve una sola sugerencia por variante, no una por
- * cada combinación exacta de mayúsculas/espacios.
+ * Las dos consultas de sugerencias van por la API ASÍNCRONA de expo-sqlite y no
+ * por drizzle, a propósito: el driver expo-sqlite de drizzle es sincrónico
+ * (SQLiteSyncDialect + stmt.executeSync().getAllSync()), así que `await
+ * db.select(...)` corre la consulta en el hilo de JS y lo bloquea hasta
+ * terminar. Y estas agrupan sobre columnas sin índice, o sea recorren el espejo
+ * completo (9k+ activos en Decameron), una de ellas parseando un JSON por fila.
+ *
+ * Con varios campos activados eso congelaba el hilo de JS varios segundos y
+ * Android levantaba el diálogo de ANR ("la app no responde: cerrar o esperar"),
+ * que es como los auditores terminaban cerrando la app y perdiendo el activo a
+ * medio llenar. getAllAsync corre en un hilo aparte y deja la interfaz viva.
  */
 export async function obtenerSugerenciasCampo(campo: string): Promise<string[]> {
-  const columna = (COLUMNA_SUGERENCIA_POR_CAMPO as Record<string, AnySQLiteColumn | undefined>)[campo];
+  const columna = COLUMNA_SQL_SUGERENCIA_POR_CAMPO[campo];
   if (!columna) return [];
 
-  const filas = await db
-    .select({ valor: columna, n: sql<number>`count(*)` })
-    .from(activosLocal)
-    .where(sql`${columna} is not null and trim(${columna}) <> ''`)
-    .groupBy(sql`lower(trim(${columna}))`)
-    .orderBy(sql`count(*) desc`)
-    .limit(LIMITE_SUGERENCIAS);
+  // Se agrupa por `lower(trim(valor))` para no separar "Negro" de "negro ", pero
+  // se expone el valor tal cual quedó escrito — una sugerencia por variante, no
+  // una por cada combinación de mayúsculas/espacios.
+  const filas = await sqlite.getAllAsync<{ valor: string }>(
+    `SELECT ${columna} AS valor, count(*) AS n
+       FROM activos_local
+      WHERE ${columna} IS NOT NULL AND trim(${columna}) <> ''
+      GROUP BY lower(trim(${columna}))
+      ORDER BY count(*) DESC
+      LIMIT ?`,
+    [LIMITE_SUGERENCIAS],
+  );
 
-  return filas.map((f) => f.valor as string);
+  return filas.map((f) => f.valor);
 }
 
 /**
  * Igual que obtenerSugerenciasCampo, pero para un campo personalizado
  * (Activo.camposPersonalizados, guardado como JSON en camposPersonalizadosJson).
- * `campoPersonalizadoId` va como parámetro ligado del `sql` tag (json_extract(col, ?)),
- * nunca concatenado al texto de la query.
+ * La ruta del json_extract va como parámetro ligado, nunca concatenada.
  */
 export async function obtenerSugerenciasCampoPersonalizado(campoPersonalizadoId: string): Promise<string[]> {
   const ruta = `$.${campoPersonalizadoId}`;
-  const valorJson = sql<string>`json_extract(${activosLocal.camposPersonalizadosJson}, ${ruta})`;
 
-  const filas = await db
-    .select({ valor: valorJson, n: sql<number>`count(*)` })
-    .from(activosLocal)
-    .where(sql`${valorJson} is not null and trim(${valorJson}) <> ''`)
-    .groupBy(sql`lower(trim(${valorJson}))`)
-    .orderBy(sql`count(*) desc`)
-    .limit(LIMITE_SUGERENCIAS);
+  const filas = await sqlite.getAllAsync<{ valor: string }>(
+    `SELECT json_extract(campos_personalizados_json, ?) AS valor, count(*) AS n
+       FROM activos_local
+      WHERE json_extract(campos_personalizados_json, ?) IS NOT NULL
+        AND trim(json_extract(campos_personalizados_json, ?)) <> ''
+      GROUP BY lower(trim(json_extract(campos_personalizados_json, ?)))
+      ORDER BY count(*) DESC
+      LIMIT ?`,
+    [ruta, ruta, ruta, ruta, LIMITE_SUGERENCIAS],
+  );
 
-  return filas.map((f) => f.valor as string);
+  return filas.map((f) => f.valor);
 }

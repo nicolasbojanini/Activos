@@ -5,7 +5,12 @@ import { drizzle } from 'drizzle-orm/expo-sqlite';
 // Sin pipeline de migraciones, un dispositivo con la base vieja (columnas placa/codigo_qr)
 // rompía el CREATE INDEX sobre la columna nueva -- bumpear el nombre fuerza un archivo
 // limpio en vez de intentar alterar el esquema existente.
-const sqlite = openDatabaseSync('adn-auditoria-v2.db');
+// Se exporta el handle crudo además de `db`: el driver expo-sqlite de drizzle es
+// SINCRÓNICO (SQLiteSyncDialect + stmt.executeSync().getAllSync()), así que un
+// `await db.select(...)` bloquea el hilo de JS mientras corre la consulta. Para
+// las consultas pesadas (escaneos del espejo completo) hay que usar la API
+// asíncrona de expo-sqlite directamente — ver obtenerSugerenciasCampo en sync.ts.
+export const sqlite = openDatabaseSync('adn-auditoria-v2.db');
 export const db = drizzle(sqlite);
 
 /**

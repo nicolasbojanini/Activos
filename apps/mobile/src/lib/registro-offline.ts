@@ -43,10 +43,6 @@ export async function encolarRegistro(input: EncolarInput): Promise<void> {
     createdAt: new Date().toISOString(),
   });
 
-  // Respaldo permanente aparte de la copia de trabajo — nunca se borra, ni
-  // siquiera después de sincronizar (ver archivarFotosLocal en fotos.ts).
-  await archivarFotosLocal(input.codigoAnteriorSnapshot ?? null, input.codigoNuevoSnapshot, input.fotos);
-
   // El espejo local refleja de una vez lo capturado (misma regla que aplica
   // el backend al sincronizar), así la ficha y las sugerencias dinámicas ven
   // el valor nuevo sin esperar el viaje de ida y vuelta al servidor. Para un
@@ -56,7 +52,25 @@ export async function encolarRegistro(input: EncolarInput): Promise<void> {
     await aplicarCambiosAlEspejoLocal(input.activoId, input.cambios);
   }
 
-  void intentarSincronizar(input.clientId, input);
+  // Respaldo permanente (nunca se borra, ni después de sincronizar) y luego la
+  // sincronización, ambos en segundo plano y en ESE orden.
+  //
+  // Antes el respaldo se esperaba acá, antes de devolver el control: por cada
+  // foto lee el JPEG entero como base64 y lo escribe por el Storage Access
+  // Framework con la API legacy de expo-file-system, o sea medio megabyte
+  // cruzando el bridge de React Native, hasta cuatro veces seguidas. Con eso
+  // adentro, tocar "Guardar" congelaba la pantalla mientras corría — y es
+  // trabajo best-effort que no tiene por qué hacer esperar al auditor.
+  //
+  // Encadenado y no en paralelo a propósito: subirYConfirmarFotos borra la copia
+  // de trabajo al confirmar cada foto, así que si corrieran a la vez, con buena
+  // señal el respaldo podría encontrarse el archivo ya borrado y saltárselo en
+  // silencio.
+  void archivarFotosLocal(input.codigoAnteriorSnapshot ?? null, input.codigoNuevoSnapshot, input.fotos).finally(
+    () => {
+      void intentarSincronizar(input.clientId, input);
+    },
+  );
 }
 
 function aRegistroAuditoriaInput(input: EncolarInput): RegistroAuditoriaInput {
