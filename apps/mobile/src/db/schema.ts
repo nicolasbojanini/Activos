@@ -89,6 +89,13 @@ export const colaRegistros = sqliteTable('cola_registros', {
  * clientPhotoId) y sobreviven solos, así que basta con guardar su metadata.
  */
 export const borradores = sqliteTable('borradores', {
+  /**
+   * Clave del borrador. Para una auditoría normal es el activoId; para un alta
+   * (NoRegistradoScreen), que todavía no tiene activo, es `nuevo:<código
+   * escaneado>` — ver claveBorradorNuevo en borrador-auditoria.ts. La columna
+   * conserva el nombre original para no migrar la tabla en los equipos que ya
+   * la tienen creada.
+   */
   activoId: text('activo_id').primaryKey(),
   datosJson: text('datos_json').notNull(),
   actualizadoEn: text('actualizado_en').notNull(),

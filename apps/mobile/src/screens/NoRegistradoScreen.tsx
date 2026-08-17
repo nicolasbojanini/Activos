@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Alert, AppState, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQueryClient } from '@tanstack/react-query';
 import * as Crypto from 'expo-crypto';
@@ -13,6 +13,14 @@ import { useProyectoActual } from '../lib/useProyectoActual';
 import { registrarValoresUsados, useSugerencias } from '../lib/useSugerencias';
 import { CampoTextoConSugerencias } from '../components/CampoTextoConSugerencias';
 import { capturarFoto, eliminarFotoLocal, type FotoCapturada } from '../lib/fotos';
+import {
+  borrarBorrador,
+  claveBorradorNuevo,
+  descartarBorrador,
+  guardarBorrador,
+  leerBorrador,
+  type BorradorNuevoForm,
+} from '../lib/borrador-auditoria';
 import { HeaderBar } from '../components/HeaderBar';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { FotosGrid, ORDEN_FOTO_OBLIGATORIA } from '../components/FotosGrid';
@@ -79,6 +87,8 @@ export function NoRegistradoScreen({ route, navigation }: Props) {
   const [centroCosto, setCentroCosto] = useState('');
   const [nota, setNota] = useState('');
   const [valoresExtra, setValoresExtra] = useState<Record<string, string>>({});
+  const [borradorCargado, setBorradorCargado] = useState(false);
+  const [borradorRecuperado, setBorradorRecuperado] = useState(false);
   const queryClient = useQueryClient();
 
   const esVisible = (campo: string) => campos.find((c) => c.campo === campo)?.visible ?? true;
@@ -86,16 +96,157 @@ export function NoRegistradoScreen({ route, navigation }: Props) {
   const camposExtra = campos.filter((c) => c.visible && !CAMPOS_CON_WIDGET_PROPIO.has(c.campo));
   const camposPersonalizadosVisibles = camposPersonalizados.filter((cp) => cp.visible);
 
+  const claveBorrador = claveBorradorNuevo(codigo);
+  const ubicacionBase = ubicacionActiva?.[CLAVE_UBICACION_BASE] ?? '';
+
+  // Espejo de lo que hay en pantalla, sin lista de dependencias: los guardados
+  // se disparan desde un intervalo y desde AppState, que capturarían valores
+  // viejos si leyeran el estado por closure.
+  const enPantallaRef = useRef({
+    nombre,
+    categoria,
+    estadoFisico,
+    ubicacionTexto,
+    responsable,
+    centroCosto,
+    nota,
+    valoresExtra,
+    fotos,
+  });
+  useEffect(() => {
+    enPantallaRef.current = {
+      nombre,
+      categoria,
+      estadoFisico,
+      ubicacionTexto,
+      responsable,
+      centroCosto,
+      nota,
+      valoresExtra,
+      fotos,
+    };
+  });
+
+  useEffect(() => {
+    let vigente = true;
+    void (async () => {
+      const guardado = await leerBorrador<BorradorNuevoForm>(claveBorrador);
+      if (!vigente) return;
+      if (guardado) {
+        setNombre(guardado.form.nombre);
+        setCategoria(guardado.form.categoria as CategoriaActivo);
+        setEstadoFisico(guardado.form.estadoFisico as keyof typeof EstadoFisico);
+        setUbicacionTexto(guardado.form.ubicacionTexto);
+        setResponsable(guardado.form.responsable);
+        setCentroCosto(guardado.form.centroCosto);
+        setNota(guardado.form.nota);
+        setValoresExtra(guardado.valoresExtra);
+        setFotos(guardado.fotos);
+        setBorradorRecuperado(true);
+      }
+      setBorradorCargado(true);
+    })();
+    return () => {
+      vigente = false;
+    };
+  }, [claveBorrador]);
+
+  /**
+   * Persiste el borrador solo si hay algo que rescatar. El alta arranca con
+   * valores por defecto (categoría "Otro", estado "Bueno", la ubicación de la
+   * sesión), así que entrar y salir sin tocar nada no debe dejar un borrador
+   * fantasma que después aparezca como "recuperamos lo que habías ingresado".
+   */
+  const guardarBorradorSiHayAlgo = useCallback(
+    async (fotosOverride?: FotoCapturada[]) => {
+      if (!borradorCargado) return;
+      const actual = enPantallaRef.current;
+      const fotosActuales = fotosOverride ?? actual.fotos;
+
+      const hayAlgo =
+        fotosActuales.length > 0 ||
+        actual.nombre.trim() !== '' ||
+        actual.categoria !== 'OTRO' ||
+        actual.estadoFisico !== 'BUENO' ||
+        actual.ubicacionTexto !== ubicacionBase ||
+        actual.responsable.trim() !== '' ||
+        actual.centroCosto.trim() !== '' ||
+        actual.nota.trim() !== '' ||
+        Object.values(actual.valoresExtra).some((valor) => valor.trim() !== '');
+
+      if (!hayAlgo) {
+        await borrarBorrador(claveBorrador);
+        return;
+      }
+
+      await guardarBorrador<BorradorNuevoForm>(claveBorrador, {
+        form: {
+          nombre: actual.nombre,
+          categoria: actual.categoria,
+          estadoFisico: actual.estadoFisico,
+          ubicacionTexto: actual.ubicacionTexto,
+          responsable: actual.responsable,
+          centroCosto: actual.centroCosto,
+          nota: actual.nota,
+        },
+        valoresExtra: actual.valoresExtra,
+        fotos: fotosActuales,
+      });
+    },
+    [borradorCargado, claveBorrador, ubicacionBase],
+  );
+
+  // Red de seguridad para quien llena campos sin tomar fotos: el proceso puede
+  // morir por otras razones (presión de memoria, el sistema reciclando la app
+  // en segundo plano) y cada guardado cuesta una escritura chica a SQLite.
+  useEffect(() => {
+    const intervalo = setInterval(() => void guardarBorradorSiHayAlgo(), 15_000);
+    const suscripcion = AppState.addEventListener('change', (siguiente) => {
+      if (siguiente !== 'active') void guardarBorradorSiHayAlgo();
+    });
+    return () => {
+      clearInterval(intervalo);
+      suscripcion.remove();
+    };
+  }, [guardarBorradorSiHayAlgo]);
+
   const handleCapturarFoto = async (etiqueta: string, orden: number) => {
+    // Se ESPERA a que el borrador quede en disco antes de abrir la cámara del
+    // sistema: abrirla nos manda a segundo plano, que es justo donde Android
+    // puede matar el proceso para darle memoria a la cámara.
+    await guardarBorradorSiHayAlgo();
+
     const foto = await capturarFoto(etiqueta, orden);
     if (!foto) return;
-    setFotos((prev) => [...prev.filter((f) => f.orden !== foto.orden), foto]);
+
+    // Se persiste con la lista nueva en mano: enPantallaRef todavía tiene la
+    // vieja (el render con el estado nuevo aún no ocurrió) y perder la foto
+    // recién tomada es justo lo que hay que evitar.
+    const siguientes = [...enPantallaRef.current.fotos.filter((f) => f.orden !== foto.orden), foto];
+    setFotos(siguientes);
+    void guardarBorradorSiHayAlgo(siguientes);
   };
 
   const handleQuitarFoto = (orden: number) => {
-    const foto = fotos.find((f) => f.orden === orden);
+    const foto = enPantallaRef.current.fotos.find((f) => f.orden === orden);
     if (foto) eliminarFotoLocal(foto.clientPhotoId);
-    setFotos((prev) => prev.filter((f) => f.orden !== orden));
+    const siguientes = enPantallaRef.current.fotos.filter((f) => f.orden !== orden);
+    setFotos(siguientes);
+    void guardarBorradorSiHayAlgo(siguientes);
+  };
+
+  const handleDescartarBorrador = () => {
+    void descartarBorrador(claveBorrador, enPantallaRef.current.fotos);
+    setFotos([]);
+    setNombre('');
+    setCategoria('OTRO');
+    setEstadoFisico('BUENO');
+    setUbicacionTexto(ubicacionBase);
+    setResponsable('');
+    setCentroCosto('');
+    setNota('');
+    setValoresExtra({});
+    setBorradorRecuperado(false);
   };
 
   const onSubmit = async () => {
@@ -180,6 +331,10 @@ export function NoRegistradoScreen({ route, navigation }: Props) {
         codigoAnteriorSnapshot: codigo,
         nombreSnapshot: nombre.trim(),
       });
+      // El alta ya está encolada: el borrador cumplió su función y hay que
+      // sacarlo, si no reaparecería como "recuperamos lo que habías ingresado"
+      // la próxima vez que se escanee este mismo código.
+      await borrarBorrador(claveBorrador);
       void queryClient.invalidateQueries({ queryKey: ['resumen-local'] });
       void queryClient.invalidateQueries({ queryKey: ['activos-local'] });
       void queryClient.invalidateQueries({ queryKey: ['pendientes-sync'] });
@@ -205,9 +360,34 @@ export function NoRegistradoScreen({ route, navigation }: Props) {
     }
   };
 
+  // Se espera a saber si hay borrador antes de pintar: si no, el auditor vería
+  // el formulario vacío y podría empezar a escribir justo cuando la restauración
+  // le pisa lo que acaba de teclear.
+  if (!borradorCargado) {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#fff' }}>
+        <HeaderBar title="Registrar activo no encontrado" subtitle={codigo} onBack={() => navigation.goBack()} />
+        <View style={styles.loading}>
+          <ActivityIndicator />
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={{ flex: 1, backgroundColor: '#fff' }}>
       <HeaderBar title="Registrar activo no encontrado" subtitle={codigo} onBack={() => navigation.goBack()} />
+
+      {borradorRecuperado && (
+        <View style={styles.borradorBanner}>
+          <Text style={styles.borradorTexto}>
+            Recuperamos lo que habías ingresado para este código. Revísalo antes de guardar.
+          </Text>
+          <Pressable onPress={handleDescartarBorrador} hitSlop={8}>
+            <Text style={styles.borradorAccion}>Descartar</Text>
+          </Pressable>
+        </View>
+      )}
 
       <ScrollView contentContainerStyle={{ padding: spacing[4], paddingBottom: 120 }}>
         <Text style={styles.hint}>
@@ -364,6 +544,20 @@ export function NoRegistradoScreen({ route, navigation }: Props) {
 }
 
 const styles = StyleSheet.create({
+  loading: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  borradorBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[3],
+    marginHorizontal: spacing[4],
+    marginTop: spacing[3],
+    paddingVertical: spacing[2],
+    paddingHorizontal: spacing[3],
+    borderRadius: radius.md,
+    backgroundColor: colors.blue[50],
+  },
+  borradorTexto: { flex: 1, fontSize: 12, fontWeight: '600', color: colors.brand.blue },
+  borradorAccion: { fontSize: 12, fontWeight: '700', color: colors.state.danger },
   hint: { fontSize: 13, color: colors.ink[500], marginBottom: spacing[4], lineHeight: 18 },
   sectionLabel: { fontSize: 13, fontWeight: '600', color: colors.ink[700], marginTop: spacing[3], marginBottom: spacing[2] },
   segmentedRow: { flexDirection: 'row', gap: spacing[2] },
