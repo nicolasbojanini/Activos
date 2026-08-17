@@ -208,17 +208,15 @@ export function InicioScreen({ navigation }: Props) {
   // acordándose de tocar "Sincronizar ahora". Reintentar cada vez que la app
   // vuelve a primer plano cubre ese caso sin depender de NetInfo.
   //
-  // PERO "primer plano" incluye la vuelta de la cámara nativa tras CADA foto
-  // (ver capturarFoto en fotos.ts, usa launchCameraAsync) — sin este
-  // enfriamiento, cada foto disparaba una sincronización completa justo en
-  // el peor momento: mientras manipulateAsync todavía está recomprimiendo esa
-  // misma foto, compitiendo por CPU/red y sintiéndose como que la app se
-  // queda pensando entre foto y foto (reporte Decameron, agosto 2026). El
-  // candado de arriba evita que se pisen dos sincronizaciones, pero no evita
-  // que UNA sincronización nueva arranque en cada regreso de cámara — este
-  // enfriamiento sí: solo deja pasar un intento por foreground si ya pasaron
-  // unos segundos desde el último (cubre igual el caso real de "recuperó
-  // señal después de un rato sin la app abierta").
+  // El enfriamiento existe porque "volver a primer plano" solía dispararse una
+  // vez POR FOTO: se abría la app de cámara del sistema, y al volver arrancaba
+  // una sincronización completa justo mientras se recomprimía esa misma foto
+  // (reporte Decameron, agosto 2026). Las fotos ya se toman dentro de la app
+  // (ver CamaraFoto.tsx), así que ese disparador desapareció — pero el
+  // enfriamiento se mantiene: sigue cubriendo cualquier otro rebote de primer
+  // plano (una llamada entrante, bloquear y desbloquear la pantalla) y el
+  // rezago no importa, porque cada registro ya intenta sincronizarse solo al
+  // guardarse. Esto es la red de seguridad para cuando ese intento falló.
   const ultimoIntentoRef = useRef(0);
   useEffect(() => {
     const suscripcion = AppState.addEventListener('change', (siguiente) => {

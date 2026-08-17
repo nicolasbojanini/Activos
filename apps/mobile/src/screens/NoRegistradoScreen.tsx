@@ -12,7 +12,8 @@ import { useConfiguracionCampos } from '../lib/useConfiguracionCampos';
 import { useProyectoActual } from '../lib/useProyectoActual';
 import { registrarValoresUsados, useSugerencias } from '../lib/useSugerencias';
 import { CampoTextoConSugerencias } from '../components/CampoTextoConSugerencias';
-import { capturarFoto, eliminarFotoLocal, type FotoCapturada } from '../lib/fotos';
+import { eliminarFotoLocal, type FotoCapturada } from '../lib/fotos';
+import { CamaraFoto, type DestinoFoto } from '../components/CamaraFoto';
 import { HeaderBar } from '../components/HeaderBar';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { FotosGrid, ORDEN_FOTO_OBLIGATORIA } from '../components/FotosGrid';
@@ -79,6 +80,7 @@ export function NoRegistradoScreen({ route, navigation }: Props) {
   const [centroCosto, setCentroCosto] = useState('');
   const [nota, setNota] = useState('');
   const [valoresExtra, setValoresExtra] = useState<Record<string, string>>({});
+  const [destinoFoto, setDestinoFoto] = useState<DestinoFoto | null>(null);
   const queryClient = useQueryClient();
 
   const esVisible = (campo: string) => campos.find((c) => c.campo === campo)?.visible ?? true;
@@ -86,9 +88,9 @@ export function NoRegistradoScreen({ route, navigation }: Props) {
   const camposExtra = campos.filter((c) => c.visible && !CAMPOS_CON_WIDGET_PROPIO.has(c.campo));
   const camposPersonalizadosVisibles = camposPersonalizados.filter((cp) => cp.visible);
 
-  const handleCapturarFoto = async (etiqueta: string, orden: number) => {
-    const foto = await capturarFoto(etiqueta, orden);
-    if (foto) setFotos((prev) => [...prev.filter((f) => f.orden !== orden), foto]);
+  const handleFotoCapturada = (foto: FotoCapturada) => {
+    setDestinoFoto(null);
+    setFotos((prev) => [...prev.filter((f) => f.orden !== foto.orden), foto]);
   };
 
   const handleQuitarFoto = (orden: number) => {
@@ -347,12 +349,23 @@ export function NoRegistradoScreen({ route, navigation }: Props) {
           numberOfLines={4}
         />
 
-        <FotosGrid fotos={fotos} onCapturar={handleCapturarFoto} onQuitar={handleQuitarFoto} fotoObligatoria={fotoObligatoria} />
+        <FotosGrid
+          fotos={fotos}
+          onCapturar={(etiqueta, orden) => setDestinoFoto({ etiqueta, orden })}
+          onQuitar={handleQuitarFoto}
+          fotoObligatoria={fotoObligatoria}
+        />
       </ScrollView>
 
       <SafeAreaView edges={['bottom']} style={styles.acciones}>
         <PrimaryButton label={enviando ? 'Guardando…' : 'Registrar activo'} onPress={() => void onSubmit()} disabled={enviando} />
       </SafeAreaView>
+
+      <CamaraFoto
+        destino={destinoFoto}
+        onCapturada={handleFotoCapturada}
+        onCancelar={() => setDestinoFoto(null)}
+      />
     </View>
   );
 }

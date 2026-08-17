@@ -1,4 +1,4 @@
-import { eq, and, or, asc, inArray, sql } from 'drizzle-orm';
+import { eq, and, or, inArray, sql } from 'drizzle-orm';
 import type {
   ActivoSesionOutput,
   CampoPersonalizadoOutput,
@@ -244,27 +244,51 @@ export interface ActivoLocalConEstado {
  */
 const LIMITE_LISTA = 200;
 
+interface FilaListaSql {
+  id: string;
+  codigo_anterior: string;
+  codigo_nuevo: string | null;
+  nombre: string;
+  categoria: string;
+  ubicacion_sede: string | null;
+  estado_servidor: string;
+  ultimo_auditor_servidor: string | null;
+}
+
 export async function listarActivosLocal(q?: string): Promise<ActivoLocalConEstado[]> {
   const filtro = q?.trim().toLowerCase();
   // % y _ son comodines de LIKE: se escapan para que buscar "100%" no
   // se comporte como "empieza por 100".
   const patron = filtro ? `%${filtro.replace(/[\\%_]/g, (c) => `\\${c}`)}%` : undefined;
 
-  const activos = await db
-    .select()
-    .from(activosLocal)
-    .where(
-      patron
-        ? or(
-            sql`lower(${activosLocal.codigoAnterior}) LIKE ${patron} ESCAPE '\\'`,
-            sql`lower(coalesce(${activosLocal.codigoNuevo}, '')) LIKE ${patron} ESCAPE '\\'`,
-            sql`lower(${activosLocal.nombre}) LIKE ${patron} ESCAPE '\\'`,
-            sql`lower(coalesce(${activosLocal.ubicacionSede}, '')) LIKE ${patron} ESCAPE '\\'`,
-          )
-        : undefined,
-    )
-    .orderBy(asc(activosLocal.codigoAnterior))
-    .limit(LIMITE_LISTA);
+  // Por la API asíncrona de expo-sqlite, no por drizzle: su driver expo-sqlite es
+  // sincrónico (ver nota en client.ts), y un LIKE con comodín inicial sobre
+  // cuatro columnas envueltas en lower() no puede usar índice — recorre el espejo
+  // completo (9k+ activos en Decameron). Sincrónico eso bloquea el hilo de JS en
+  // cada tecla del buscador, que es justo cuando el auditor está buscando el
+  // activo siguiente. Se seleccionan solo las columnas que la fila necesita, en
+  // vez de la ficha entera, para no materializar de más.
+  const activos = patron
+    ? await sqlite.getAllAsync<FilaListaSql>(
+        `SELECT id, codigo_anterior, codigo_nuevo, nombre, categoria, ubicacion_sede,
+                estado_servidor, ultimo_auditor_servidor
+           FROM activos_local
+          WHERE lower(codigo_anterior) LIKE ? ESCAPE '\\'
+             OR lower(coalesce(codigo_nuevo, '')) LIKE ? ESCAPE '\\'
+             OR lower(nombre) LIKE ? ESCAPE '\\'
+             OR lower(coalesce(ubicacion_sede, '')) LIKE ? ESCAPE '\\'
+          ORDER BY codigo_anterior ASC
+          LIMIT ?`,
+        [patron, patron, patron, patron, LIMITE_LISTA],
+      )
+    : await sqlite.getAllAsync<FilaListaSql>(
+        `SELECT id, codigo_anterior, codigo_nuevo, nombre, categoria, ubicacion_sede,
+                estado_servidor, ultimo_auditor_servidor
+           FROM activos_local
+          ORDER BY codigo_anterior ASC
+          LIMIT ?`,
+        [LIMITE_LISTA],
+      );
 
   // La cola de pendientes es pequeña (lo capturado sin sincronizar) —
   // cargarla completa sigue siendo barato.
@@ -280,13 +304,13 @@ export async function listarActivosLocal(q?: string): Promise<ActivoLocalConEsta
     const pendiente = pendientePorActivo.get(a.id);
     return {
       id: a.id,
-      codigoAnterior: a.codigoAnterior,
-      codigoNuevo: a.codigoNuevo ?? '',
+      codigoAnterior: a.codigo_anterior,
+      codigoNuevo: a.codigo_nuevo ?? '',
       nombre: a.nombre,
       categoria: a.categoria,
-      ubicacionSede: a.ubicacionSede,
-      estado: (pendiente?.estado ?? a.estadoServidor) as EstadoAuditoria,
-      ultimoAuditor: a.ultimoAuditorServidor,
+      ubicacionSede: a.ubicacion_sede,
+      estado: (pendiente?.estado ?? a.estado_servidor) as EstadoAuditoria,
+      ultimoAuditor: a.ultimo_auditor_servidor,
       sinSincronizar: !!pendiente,
     };
   });
@@ -321,11 +345,13 @@ export interface ResumenLocal {
 export async function calcularResumenLocal(): Promise<ResumenLocal> {
   // Conteo base por estado del servidor con GROUP BY (una pasada en el motor
   // de SQLite) — antes esto cargaba y ORDENABA el inventario completo en JS
-  // solo para contar, en cada invalidación (o sea, en cada guardado).
-  const conteos = await db
-    .select({ estado: activosLocal.estadoServidor, n: sql<number>`count(*)` })
-    .from(activosLocal)
-    .groupBy(activosLocal.estadoServidor);
+  // solo para contar, en cada invalidación (o sea, en cada guardado). Va por la
+  // API asíncrona: estado_servidor no tiene índice, así que el GROUP BY recorre
+  // el espejo entero, y con el driver sincrónico de drizzle eso bloqueaba el
+  // hilo de JS en cada invalidación (ver nota en client.ts).
+  const conteos = await sqlite.getAllAsync<{ estado: string; n: number }>(
+    `SELECT estado_servidor AS estado, count(*) AS n FROM activos_local GROUP BY estado_servidor`,
+  );
 
   const porEstado = new Map<string, number>();
   for (const c of conteos) porEstado.set(c.estado, c.n);

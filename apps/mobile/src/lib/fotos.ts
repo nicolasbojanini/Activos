@@ -1,4 +1,3 @@
-import * as ImagePicker from 'expo-image-picker';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { Directory, File, Paths } from 'expo-file-system';
 import * as Crypto from 'expo-crypto';
@@ -106,26 +105,53 @@ export interface FotoCapturada {
   alto: number;
 }
 
-/** Captura con la cámara, recomprime (máx. 1600px, JPEG ~0.7) y guarda localmente por clientPhotoId. */
-export async function capturarFoto(etiqueta: string, orden: number): Promise<FotoCapturada | null> {
-  const permiso = await ImagePicker.requestCameraPermissionsAsync();
-  if (!permiso.granted) return null;
+/**
+ * Ancho objetivo de cada foto. 1024px alcanza de sobra para identificar un activo
+ * y leer una placa, y frente a los 1600px anteriores baja a ~40% los píxeles:
+ * archivos más chicos (menos base64 en memoria al respaldar, menos peso al subir,
+ * menos volumen en MinIO) y bitmaps más chicos al pintar las miniaturas.
+ *
+ * Se usa además para elegir la resolución DE CAPTURA de la cámara (ver
+ * CamaraFoto.tsx): capturar a los 12MP+ del sensor solo para reducir después
+ * obliga a decodificar un bitmap de decenas de MB, que es lo más caro de tomar
+ * una foto y lo que dejaba la app sin responder entre foto y foto.
+ */
+export const ANCHO_FOTO = 1024;
 
-  const resultado = await ImagePicker.launchCameraAsync({ quality: 0.8 });
-  if (resultado.canceled) return null;
-
-  const manipulada = await manipulateAsync(resultado.assets[0].uri, [{ resize: { width: 1600 } }], {
-    compress: 0.7,
-    format: SaveFormat.JPEG,
-  });
+/**
+ * Guarda una foto ya capturada por la cámara embebida (ver CamaraFoto.tsx) en la
+ * carpeta de trabajo, bajo su clientPhotoId.
+ *
+ * Antes esto se hacía con ImagePicker.launchCameraAsync, que abre la app de
+ * cámara del sistema: eso mandaba nuestro proceso a segundo plano (donde Android
+ * lo puede matar) y devolvía la foto a resolución completa del sensor, forzando
+ * un decodificado carísimo. Capturando dentro de la app nunca salimos a segundo
+ * plano y la resolución ya viene acotada, así que acá el resize es una red de
+ * seguridad: si el dispositivo no ofreció un tamaño de captura suficientemente
+ * chico, se reduce; si ya vino en el objetivo o menor, no se toca.
+ */
+export async function guardarFotoCapturada(
+  uri: string,
+  etiqueta: string,
+  orden: number,
+  ancho: number,
+  alto: number,
+): Promise<FotoCapturada> {
+  const procesada =
+    ancho > ANCHO_FOTO
+      ? await manipulateAsync(uri, [{ resize: { width: ANCHO_FOTO } }], {
+          compress: 0.7,
+          format: SaveFormat.JPEG,
+        })
+      : { uri, width: ancho, height: alto };
 
   asegurarCarpeta();
   const clientPhotoId = Crypto.randomUUID();
-  const origen = new File(manipulada.uri);
+  const origen = new File(procesada.uri);
   const destino = new File(carpetaFotos, `${clientPhotoId}.jpg`);
   await origen.copy(destino);
 
-  return { clientPhotoId, localUri: destino.uri, etiqueta, orden, ancho: manipulada.width, alto: manipulada.height };
+  return { clientPhotoId, localUri: destino.uri, etiqueta, orden, ancho: procesada.width, alto: procesada.height };
 }
 
 export function archivoLocalFoto(clientPhotoId: string): File {

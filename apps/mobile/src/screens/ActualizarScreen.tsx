@@ -18,7 +18,8 @@ import { registrarValoresUsados, useSugerencias } from '../lib/useSugerencias';
 import { CampoTextoConSugerencias } from '../components/CampoTextoConSugerencias';
 import { calcularReubicacionAutomatica } from '../lib/ubicacion-relocate';
 import { CLAVE_UBICACION_BASE, exigirUbicacionActiva, useUbicacionActivaStore } from '../lib/ubicacion-activa-store';
-import { capturarFoto, eliminarFotoLocal, type FotoCapturada } from '../lib/fotos';
+import { eliminarFotoLocal, type FotoCapturada } from '../lib/fotos';
+import { CamaraFoto, type DestinoFoto } from '../components/CamaraFoto';
 import {
   borrarBorrador,
   descartarBorrador,
@@ -123,6 +124,7 @@ export function ActualizarScreen({ route, navigation }: Props) {
   const [borrador, setBorrador] = useState<BorradorAuditoria | null>(null);
   const [borradorCargado, setBorradorCargado] = useState(false);
   const [borradorRecuperado, setBorradorRecuperado] = useState(false);
+  const [destinoFoto, setDestinoFoto] = useState<DestinoFoto | null>(null);
   const queryClient = useQueryClient();
 
   const esVisible = (campo: string) => campos.find((c) => c.campo === campo)?.visible ?? true;
@@ -284,17 +286,21 @@ export function ActualizarScreen({ route, navigation }: Props) {
     [activoId, borradorCargado, getValues],
   );
 
-  const handleCapturarFoto = async (etiqueta: string, orden: number) => {
-    // Guardar ANTES de abrir la cámara: ese es el momento exacto en que Android
-    // puede matar este proceso para darle memoria a la cámara nativa, y con él
-    // todo lo que el auditor ya escribió.
+  const handleCapturarFoto = (etiqueta: string, orden: number) => {
+    // Se guarda el borrador antes de abrir la cámara. Con la cámara embebida ya
+    // no salimos a segundo plano, así que el riesgo de que Android nos mate acá
+    // bajó mucho — pero sigue habiendo presión de memoria mientras el sensor
+    // está tomado, y esto cuesta una escritura chica a SQLite.
     guardarBorradorSiHayAlgo();
-    const foto = await capturarFoto(etiqueta, orden);
-    if (!foto) return;
+    setDestinoFoto({ etiqueta, orden });
+  };
+
+  const handleFotoCapturada = (foto: FotoCapturada) => {
+    setDestinoFoto(null);
     // Se persiste con la lista nueva en mano: enPantallaRef todavía tiene la
     // vieja (el render con el estado nuevo aún no ocurrió) y perder la foto
     // recién tomada es justo lo que hay que evitar.
-    const siguientes = [...enPantallaRef.current.fotos.filter((f) => f.orden !== orden), foto];
+    const siguientes = [...enPantallaRef.current.fotos.filter((f) => f.orden !== foto.orden), foto];
     setFotos(siguientes);
     guardarBorradorSiHayAlgo(siguientes);
   };
@@ -719,6 +725,12 @@ export function ActualizarScreen({ route, navigation }: Props) {
           </View>
         </View>
       </SafeAreaView>
+
+      <CamaraFoto
+        destino={destinoFoto}
+        onCapturada={handleFotoCapturada}
+        onCancelar={() => setDestinoFoto(null)}
+      />
     </View>
   );
 }
