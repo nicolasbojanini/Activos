@@ -73,6 +73,27 @@ export const colaRegistros = sqliteTable('cola_registros', {
   createdAt: text('created_at').notNull(),
 });
 
+/**
+ * Borrador de una auditoría a medio llenar (ActualizarScreen), para que
+ * perder el proceso no signifique perder el trabajo del auditor.
+ *
+ * Existe porque `launchCameraAsync` abre la cámara nativa como otra actividad
+ * de Android y deja a esta app en segundo plano: en un teléfono de gama baja,
+ * el Low Memory Killer la mata para darle memoria a la cámara. Eso NO es un
+ * crash de JS — no hay excepción que capturar ni forma de evitarlo desde acá —
+ * así que la única defensa real es que lo ya escrito sobreviva fuera de la
+ * memoria del proceso (incidente Decameron, agosto 2026: auditores perdiendo
+ * el formulario entero al tomar fotos, varias versiones seguidas).
+ *
+ * Las fotos no se copian acá: sus JPEG ya viven en disco (carpetaFotos, por
+ * clientPhotoId) y sobreviven solos, así que basta con guardar su metadata.
+ */
+export const borradores = sqliteTable('borradores', {
+  activoId: text('activo_id').primaryKey(),
+  datosJson: text('datos_json').notNull(),
+  actualizadoEn: text('actualizado_en').notNull(),
+});
+
 /** Pares clave/valor para estado de la sesión offline (última sincronización, proyecto activo, etc). */
 export const metaSesion = sqliteTable('meta_sesion', {
   clave: text('clave').primaryKey(),

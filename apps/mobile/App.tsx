@@ -9,6 +9,7 @@ import { colors } from '@adn/ui-tokens';
 import { RootNavigator } from './src/navigation/RootNavigator';
 import { useAuthStore } from './src/lib/auth-store';
 import { inicializarBaseLocal } from './src/db/client';
+import { limpiarBorradoresVencidos } from './src/lib/borrador-auditoria';
 
 // Sin EXPO_PUBLIC_SENTRY_DSN el SDK no envía nada (no-op) — listo para activarse solo con la variable de entorno.
 Sentry.init({
@@ -38,6 +39,9 @@ function App() {
 
   useEffect(() => {
     inicializarBaseLocal();
+    // Higiene, no corrección: leerBorrador ya ignora los vencidos, esto evita que
+    // la tabla crezca sin techo en un teléfono que trabaja miles de activos.
+    void limpiarBorradoresVencidos();
     hydrate().finally(() => setReady(true));
   }, [hydrate]);
 

@@ -78,6 +78,12 @@ export function inicializarBaseLocal() {
       created_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS borradores (
+      activo_id TEXT PRIMARY KEY,
+      datos_json TEXT NOT NULL,
+      actualizado_en TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS meta_sesion (
       clave TEXT PRIMARY KEY,
       valor TEXT NOT NULL

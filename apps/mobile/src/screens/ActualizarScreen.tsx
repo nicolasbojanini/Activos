@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Alert, AppState, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Controller, useForm } from 'react-hook-form';
@@ -19,6 +19,14 @@ import { CampoTextoConSugerencias } from '../components/CampoTextoConSugerencias
 import { calcularReubicacionAutomatica } from '../lib/ubicacion-relocate';
 import { CLAVE_UBICACION_BASE, exigirUbicacionActiva, useUbicacionActivaStore } from '../lib/ubicacion-activa-store';
 import { capturarFoto, eliminarFotoLocal, type FotoCapturada } from '../lib/fotos';
+import {
+  borrarBorrador,
+  descartarBorrador,
+  guardarBorrador,
+  leerBorrador,
+  type BorradorAuditoria,
+  type BorradorForm,
+} from '../lib/borrador-auditoria';
 import { HeaderBar } from '../components/HeaderBar';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { FotosGrid, ORDEN_FOTO_OBLIGATORIA } from '../components/FotosGrid';
@@ -112,23 +120,15 @@ export function ActualizarScreen({ route, navigation }: Props) {
   const [fotos, setFotos] = useState<FotoCapturada[]>([]);
   const [valoresExtra, setValoresExtra] = useState<Record<string, string>>({});
   const [valoresExtraOriginales, setValoresExtraOriginales] = useState<Record<string, string>>({});
+  const [borrador, setBorrador] = useState<BorradorAuditoria | null>(null);
+  const [borradorCargado, setBorradorCargado] = useState(false);
+  const [borradorRecuperado, setBorradorRecuperado] = useState(false);
   const queryClient = useQueryClient();
 
   const esVisible = (campo: string) => campos.find((c) => c.campo === campo)?.visible ?? true;
   const esRequerido = (campo: string) => campos.find((c) => c.campo === campo)?.requerido ?? false;
   const camposExtra = campos.filter((c) => c.visible && !CAMPOS_CON_WIDGET_PROPIO.has(c.campo));
   const camposPersonalizadosVisibles = camposPersonalizados.filter((cp) => cp.visible);
-
-  const handleCapturarFoto = async (etiqueta: string, orden: number) => {
-    const foto = await capturarFoto(etiqueta, orden);
-    if (foto) setFotos((prev) => [...prev.filter((f) => f.orden !== orden), foto]);
-  };
-
-  const handleQuitarFoto = (orden: number) => {
-    const foto = fotos.find((f) => f.orden === orden);
-    if (foto) eliminarFotoLocal(foto.clientPhotoId);
-    setFotos((prev) => prev.filter((f) => f.orden !== orden));
-  };
 
   const ubicacionActiva = useUbicacionActivaStore((s) => s.ubicacionActiva);
 
@@ -148,49 +148,188 @@ export function ActualizarScreen({ route, navigation }: Props) {
     control,
     handleSubmit,
     reset,
+    getValues,
     formState: { errors },
   } = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: { estadoFisico: 'BUENO', ubicacionTexto: '', responsable: '', centroCosto: '', nota: '' },
   });
 
+  // Se intenta recuperar el borrador ANTES de inicializar el formulario: si
+  // Android mató el proceso mientras la cámara nativa estaba en primer plano
+  // (ver borrador-auditoria.ts), esto es lo único que sobrevivió de lo que el
+  // auditor ya había escrito.
   useEffect(() => {
-    if (resultado) {
-      // Si hay una ubicación activa en la sesión y difiere de la guardada, se
-      // precarga en el campo para que el auditor la vea reflejada antes de
-      // enviar (en vez de que sea una sobreescritura silenciosa al guardar).
-      const ubicacionActivaBase = ubicacionActiva?.[CLAVE_UBICACION_BASE];
-      const ubicacionPorDefecto =
-        ubicacionActivaBase &&
-        ubicacionActivaBase.trim().toLowerCase() !== (resultado.activo.ubicacionSede ?? '').trim().toLowerCase()
-          ? ubicacionActivaBase
-          : (resultado.activo.ubicacionSede ?? '');
-      reset({
-        estadoFisico: resultado.activo.estadoFisico as FormValues['estadoFisico'],
-        ubicacionTexto: ubicacionPorDefecto,
-        responsable: resultado.activo.responsable ?? '',
-        centroCosto: resultado.activo.centroCosto ?? '',
-        nota: '',
-      });
+    let vigente = true;
+    void (async () => {
+      const guardado = await leerBorrador(activoId);
+      if (!vigente) return;
+      setBorrador(guardado);
+      setBorradorCargado(true);
+    })();
+    return () => {
+      vigente = false;
+    };
+  }, [activoId]);
 
-      const extra: Record<string, string> = {};
-      for (const c of campos) {
-        if (c.visible && !CAMPOS_CON_WIDGET_PROPIO.has(c.campo)) {
-          extra[c.campo] = valorActualCampoExtra(resultado.activo, c.campo);
-        }
+  /** Valores del activo tal como vinieron del espejo local: la referencia para decidir si hay algo que valga guardar. */
+  const baseRef = useRef<{ form: FormValues; valoresExtra: Record<string, string> } | null>(null);
+  const inicializadoRef = useRef(false);
+
+  // Ref con lo último renderizado: los autoguardados leen de acá en vez de
+  // suscribirse con watch(), que re-renderiza la pantalla completa en cada
+  // tecla — justo lo que no conviene en un teléfono de gama baja.
+  const enPantallaRef = useRef<{ valoresExtra: Record<string, string>; fotos: FotoCapturada[] }>({
+    valoresExtra: {},
+    fotos: [],
+  });
+  useEffect(() => {
+    enPantallaRef.current = { valoresExtra, fotos };
+  });
+
+  useEffect(() => {
+    if (!resultado || !borradorCargado) return;
+
+    // Si hay una ubicación activa en la sesión y difiere de la guardada, se
+    // precarga en el campo para que el auditor la vea reflejada antes de
+    // enviar (en vez de que sea una sobreescritura silenciosa al guardar).
+    const ubicacionActivaBase = ubicacionActiva?.[CLAVE_UBICACION_BASE];
+    const ubicacionPorDefecto =
+      ubicacionActivaBase &&
+      ubicacionActivaBase.trim().toLowerCase() !== (resultado.activo.ubicacionSede ?? '').trim().toLowerCase()
+        ? ubicacionActivaBase
+        : (resultado.activo.ubicacionSede ?? '');
+    const formBase: FormValues = {
+      estadoFisico: resultado.activo.estadoFisico as FormValues['estadoFisico'],
+      ubicacionTexto: ubicacionPorDefecto,
+      responsable: resultado.activo.responsable ?? '',
+      centroCosto: resultado.activo.centroCosto ?? '',
+      nota: '',
+    };
+
+    const extra: Record<string, string> = {};
+    for (const c of campos) {
+      if (c.visible && !CAMPOS_CON_WIDGET_PROPIO.has(c.campo)) {
+        extra[c.campo] = valorActualCampoExtra(resultado.activo, c.campo);
       }
-      const valoresPersonalizados: Record<string, string> = resultado.activo.camposPersonalizadosJson
-        ? (JSON.parse(resultado.activo.camposPersonalizadosJson) as Record<string, string>)
-        : {};
-      for (const cp of camposPersonalizados) {
-        if (cp.visible) {
-          extra[`${PREFIJO_CAMPO_PERSONALIZADO}${cp.id}`] = valoresPersonalizados[cp.id] ?? '';
-        }
-      }
-      setValoresExtra(extra);
-      setValoresExtraOriginales(extra);
     }
-  }, [resultado, ubicacionActiva, reset, campos, camposPersonalizados]);
+    const valoresPersonalizados: Record<string, string> = resultado.activo.camposPersonalizadosJson
+      ? (JSON.parse(resultado.activo.camposPersonalizadosJson) as Record<string, string>)
+      : {};
+    for (const cp of camposPersonalizados) {
+      if (cp.visible) {
+        extra[`${PREFIJO_CAMPO_PERSONALIZADO}${cp.id}`] = valoresPersonalizados[cp.id] ?? '';
+      }
+    }
+
+    baseRef.current = { form: formBase, valoresExtra: extra };
+    // `valoresExtraOriginales` es contra lo que se calcula el diff que se manda
+    // al servidor: siempre los valores del activo, nunca los del borrador.
+    setValoresExtraOriginales(extra);
+
+    // El formulario se inicializa UNA sola vez por activo. `resultado` y `campos`
+    // vienen de react-query y cambian de identidad en cada refetch — y con
+    // refetchOnReconnect activo, en un sitio de señal intermitente eso pasa todo
+    // el tiempo. Si este efecto volviera a llamar reset() ahí, borraría lo que el
+    // auditor venía escribiendo: pérdida de datos silenciosa, sin que la app se
+    // cierre siquiera (reporte Decameron, agosto 2026). La base para el diff, en
+    // cambio, sí se refresca siempre — es lo de arriba.
+    if (inicializadoRef.current) return;
+    inicializadoRef.current = true;
+
+    if (borrador) {
+      reset({
+        estadoFisico: (borrador.form.estadoFisico as FormValues['estadoFisico']) ?? formBase.estadoFisico,
+        ubicacionTexto: borrador.form.ubicacionTexto ?? formBase.ubicacionTexto,
+        responsable: borrador.form.responsable ?? formBase.responsable,
+        centroCosto: borrador.form.centroCosto ?? formBase.centroCosto,
+        nota: borrador.form.nota ?? '',
+      });
+      setValoresExtra({ ...extra, ...borrador.valoresExtra });
+      setFotos(borrador.fotos);
+      setBorradorRecuperado(true);
+      return;
+    }
+    reset(formBase);
+    setValoresExtra(extra);
+  }, [resultado, ubicacionActiva, reset, campos, camposPersonalizados, borrador, borradorCargado]);
+
+  /**
+   * Persiste el borrador solo si hay algo que rescatar (una foto tomada, o algún
+   * campo distinto al del activo original). Si no hay nada, borra el que hubiera:
+   * así abrir un activo y salir sin tocar nada no deja un borrador fantasma que
+   * después aparezca como "recuperamos lo que habías ingresado".
+   */
+  const guardarBorradorSiHayAlgo = useCallback(
+    (fotosOverride?: FotoCapturada[]) => {
+      const base = baseRef.current;
+      if (!base || !borradorCargado) return;
+
+      const valoresExtraActual = enPantallaRef.current.valoresExtra;
+      const fotosActuales = fotosOverride ?? enPantallaRef.current.fotos;
+      const form = getValues();
+
+      const clavesForm = Object.keys(base.form) as (keyof BorradorForm)[];
+      const cambioForm = clavesForm.some((clave) => (form[clave] ?? '') !== (base.form[clave] ?? ''));
+      const cambioExtra = Object.keys({ ...base.valoresExtra, ...valoresExtraActual }).some(
+        (clave) => (valoresExtraActual[clave] ?? '') !== (base.valoresExtra[clave] ?? ''),
+      );
+
+      if (fotosActuales.length === 0 && !cambioForm && !cambioExtra) {
+        void borrarBorrador(activoId);
+        return;
+      }
+      void guardarBorrador(activoId, { form, valoresExtra: valoresExtraActual, fotos: fotosActuales });
+    },
+    [activoId, borradorCargado, getValues],
+  );
+
+  const handleCapturarFoto = async (etiqueta: string, orden: number) => {
+    // Guardar ANTES de abrir la cámara: ese es el momento exacto en que Android
+    // puede matar este proceso para darle memoria a la cámara nativa, y con él
+    // todo lo que el auditor ya escribió.
+    guardarBorradorSiHayAlgo();
+    const foto = await capturarFoto(etiqueta, orden);
+    if (!foto) return;
+    // Se persiste con la lista nueva en mano: enPantallaRef todavía tiene la
+    // vieja (el render con el estado nuevo aún no ocurrió) y perder la foto
+    // recién tomada es justo lo que hay que evitar.
+    const siguientes = [...enPantallaRef.current.fotos.filter((f) => f.orden !== orden), foto];
+    setFotos(siguientes);
+    guardarBorradorSiHayAlgo(siguientes);
+  };
+
+  const handleQuitarFoto = (orden: number) => {
+    const foto = enPantallaRef.current.fotos.find((f) => f.orden === orden);
+    if (foto) eliminarFotoLocal(foto.clientPhotoId);
+    const siguientes = enPantallaRef.current.fotos.filter((f) => f.orden !== orden);
+    setFotos(siguientes);
+    guardarBorradorSiHayAlgo(siguientes);
+  };
+
+  const handleDescartarBorrador = () => {
+    const base = baseRef.current;
+    if (!base) return;
+    void descartarBorrador(activoId, enPantallaRef.current.fotos);
+    setFotos([]);
+    setValoresExtra(base.valoresExtra);
+    reset(base.form);
+    setBorradorRecuperado(false);
+  };
+
+  // Red de seguridad para quien llena campos sin tomar fotos: el proceso puede
+  // morir por otras razones (presión de memoria, el sistema reciclando la app en
+  // segundo plano) y cada guardado cuesta una escritura chica a SQLite.
+  useEffect(() => {
+    const intervalo = setInterval(() => guardarBorradorSiHayAlgo(), 15_000);
+    const suscripcion = AppState.addEventListener('change', (siguiente) => {
+      if (siguiente !== 'active') guardarBorradorSiHayAlgo();
+    });
+    return () => {
+      clearInterval(intervalo);
+      suscripcion.remove();
+    };
+  }, [guardarBorradorSiHayAlgo]);
 
   const onSubmit = async (values: FormValues) => {
     // Antes esto salía en silencio si proyecto/resultado todavía no estaban
@@ -343,6 +482,10 @@ export function ActualizarScreen({ route, navigation }: Props) {
         codigoNuevoSnapshot: valoresExtra.codigoNuevo || activo.codigoNuevo || undefined,
         nombreSnapshot: activo.nombre,
       });
+      // Ya quedó en la cola (que sí sobrevive a que muera el proceso): el
+      // borrador cumplió su función y tiene que irse, o al reabrir el activo
+      // reaparecerían los valores de una auditoría ya enviada.
+      await borrarBorrador(activoId);
       void queryClient.invalidateQueries({ queryKey: ['resumen-local'] });
       void queryClient.invalidateQueries({ queryKey: ['activos-local'] });
       void queryClient.invalidateQueries({ queryKey: ['activo-local', activoId] });
@@ -365,7 +508,10 @@ export function ActualizarScreen({ route, navigation }: Props) {
     }
   };
 
-  if (!resultado) {
+  // Se espera también al borrador: entrar con los valores del activo y
+  // reemplazarlos un instante después por los recuperados se vería como un
+  // parpadeo raro justo en la pantalla donde el auditor está por escribir.
+  if (!resultado || !borradorCargado) {
     return (
       <SafeAreaView style={styles.loading}>
         <Text>Cargando…</Text>
@@ -378,6 +524,17 @@ export function ActualizarScreen({ route, navigation }: Props) {
   return (
     <View style={{ flex: 1, backgroundColor: '#fff' }}>
       <HeaderBar title="Actualizar activo" subtitle={activo.codigoAnterior} onBack={() => navigation.goBack()} />
+
+      {borradorRecuperado && (
+        <View style={styles.borradorBanner}>
+          <Text style={styles.borradorTexto}>
+            Recuperamos lo que habías ingresado en este activo. Revísalo antes de guardar.
+          </Text>
+          <Pressable onPress={handleDescartarBorrador} hitSlop={8}>
+            <Text style={styles.borradorAccion}>Descartar</Text>
+          </Pressable>
+        </View>
+      )}
 
       <ScrollView contentContainerStyle={{ padding: spacing[4], paddingBottom: 120 }}>
         {esVisible('estadoFisico') && (
@@ -563,6 +720,19 @@ export function ActualizarScreen({ route, navigation }: Props) {
 const styles = StyleSheet.create({
   loading: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   sectionLabel: { fontSize: 13, fontWeight: '600', color: colors.ink[700], marginTop: spacing[4], marginBottom: spacing[2] },
+  borradorBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[3],
+    marginHorizontal: spacing[4],
+    marginTop: spacing[3],
+    paddingVertical: spacing[2],
+    paddingHorizontal: spacing[3],
+    borderRadius: radius.md,
+    backgroundColor: colors.blue[50],
+  },
+  borradorTexto: { flex: 1, fontSize: 12, fontWeight: '600', color: colors.brand.blue },
+  borradorAccion: { fontSize: 12, fontWeight: '700', color: colors.state.danger },
   segmentedRow: { flexDirection: 'row', gap: spacing[2] },
   segment: {
     flex: 1,
