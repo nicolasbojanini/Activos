@@ -443,15 +443,32 @@ export class RegistrosService {
     });
     if (existente) return existente;
 
+    // El SAVEPOINT no es decorativo: en Postgres una violación de constraint
+    // aborta la transacción ENTERA, y todo lo que venga después falla con
+    // "current transaction is aborted, commands ignored until end of transaction
+    // block". Sin él, el catch de acá abajo era código muerto — su
+    // findFirstOrThrow moría con ese mismo error y el registro terminaba
+    // rechazado, justo el caso que este método dice cubrir (visto en los logs de
+    // producción el 19/08/2026 con el código F0257583). Volver al savepoint deja
+    // la transacción utilizable otra vez para poder leer el activo que ganó la
+    // carrera.
+    await tx.$executeRawUnsafe('SAVEPOINT crear_activo_desde_hallazgo');
     try {
-      return await tx.activo.create({
+      const creado = await tx.activo.create({
         data: { codigoAnterior, nombre, categoria },
       });
+      await tx.$executeRawUnsafe(
+        'RELEASE SAVEPOINT crear_activo_desde_hallazgo',
+      );
+      return creado;
     } catch (err) {
       if (
         err instanceof Prisma.PrismaClientKnownRequestError &&
         err.code === 'P2002'
       ) {
+        await tx.$executeRawUnsafe(
+          'ROLLBACK TO SAVEPOINT crear_activo_desde_hallazgo',
+        );
         return tx.activo.findFirstOrThrow({ where: { codigoAnterior } });
       }
       throw err;
