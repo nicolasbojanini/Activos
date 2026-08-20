@@ -147,7 +147,20 @@ async function subirYConfirmarFotos(
  * `registroSincronizado` apenas crearRegistro responde, sin esperar a las
  * fotos — contarPendientesSync() cuenta solo lo que de verdad no llegó.
  */
+const enVuelo = new Set<string>();
+
 async function intentarSincronizar(clientId: string, input: EncolarInput): Promise<boolean> {
+  // encolarRegistro dispara la sincronización de SU registro apenas se guarda, y
+  // esa puede seguir corriendo cuando arranca un sincronizarPendientes() (al
+  // volver a primer plano, al reconectar). Sin este candado el mismo registro
+  // sale dos veces a la vez: el servidor acepta el primero y rechaza el segundo
+  // por clientId duplicado, abortando esa transacción del lado de Postgres
+  // (visto en producción el 19/08/2026: dos POST del mismo clientId con 2 ms de
+  // diferencia). No se persiste entre arranques a propósito — si el proceso
+  // muere no queda nada en vuelo que proteger, y la cola se reintenta sola.
+  if (enVuelo.has(clientId)) return false;
+  enVuelo.add(clientId);
+
   try {
     const { registro, uploads } = await crearRegistro(aRegistroAuditoriaInput(input));
     await marcarRegistroConfirmado(clientId);
@@ -163,6 +176,8 @@ async function intentarSincronizar(clientId: string, input: EncolarInput): Promi
   } catch (err) {
     console.warn('[sync] intentarSincronizar falló', clientId, err);
     return false;
+  } finally {
+    enVuelo.delete(clientId);
   }
 }
 
@@ -209,7 +224,12 @@ export interface ResultadoSincronizacion {
  * global de la API (100 req/min) contando las subidas de fotos.
  */
 export async function sincronizarPendientes(): Promise<ResultadoSincronizacion> {
-  const pendientes = await db.select().from(colaRegistros).where(eq(colaRegistros.synced, 0));
+  // Se excluyen los que ya tienen una sincronización en vuelo: el candado de
+  // intentarSincronizar igual los frenaría, pero filtrarlos acá evita contarlos
+  // como "fallidos" en el resumen que ve el auditor.
+  const pendientes = (
+    await db.select().from(colaRegistros).where(eq(colaRegistros.synced, 0))
+  ).filter((fila) => !enVuelo.has(fila.clientId));
 
   const CONCURRENCIA = 4;
   let exitosos = 0;
