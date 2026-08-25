@@ -50,7 +50,31 @@ export class AuthService {
     };
   }
 
-  async login(dto: LoginDto) {
+  /**
+   * Guarda el build de la app (header X-App-Build, ver ApiFetch en mobile) del
+   * usuario que acaba de autenticarse — permite ubicar desde el backend quién
+   * sigue en una versión vieja para pedirle que actualice. Solo en login y
+   * refresh, no en cada request: con el access token durando 15 minutos,
+   * cualquier dispositivo en uso activo lo refresca solo con esa cadencia, sin
+   * necesidad de escribir en cada llamada. Best-effort: nunca debe convertir un
+   * login válido en un error por un problema al guardar este dato secundario.
+   */
+  private registrarBuildApp(usuarioId: string, buildApp: string | undefined) {
+    if (!buildApp) return;
+    const valor = buildApp.trim().slice(0, 32);
+    if (!valor) return;
+
+    void this.prisma.usuario
+      .update({
+        where: { id: usuarioId },
+        data: { ultimoBuildApp: valor, ultimoAccesoApp: new Date() },
+      })
+      .catch(() => {
+        // No romper el login/refresh por esto: es solo información para soporte.
+      });
+  }
+
+  async login(dto: LoginDto, buildApp?: string) {
     const usuario = await this.prisma.usuario.findUnique({
       where: { email: dto.email },
     });
@@ -66,6 +90,8 @@ export class AuthService {
       throw new UnauthorizedException('Credenciales inválidas');
     }
 
+    this.registrarBuildApp(usuario.id, buildApp);
+
     return {
       accessToken: this.signAccessToken(usuario.id),
       refreshToken: this.signRefreshToken(usuario.id),
@@ -73,7 +99,7 @@ export class AuthService {
     };
   }
 
-  async refresh(dto: RefreshDto) {
+  async refresh(dto: RefreshDto, buildApp?: string) {
     let payload: JwtRefreshPayload;
     try {
       payload = this.jwt.verify<JwtRefreshPayload>(dto.refreshToken, {
@@ -93,6 +119,8 @@ export class AuthService {
     if (!usuario || !usuario.activo) {
       throw new UnauthorizedException('Usuario no encontrado o inactivo');
     }
+
+    this.registrarBuildApp(usuario.id, buildApp);
 
     return { accessToken: this.signAccessToken(usuario.id) };
   }

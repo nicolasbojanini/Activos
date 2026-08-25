@@ -24,6 +24,20 @@ export const usuarioSchema = z.object({
 
 export type UsuarioOutput = z.infer<typeof usuarioSchema>;
 
+/**
+ * Para GET /usuarios (listado del portal). ultimoBuildApp/ultimoAccesoApp
+ * vienen de X-App-Build (header enviado por la app móvil en login/refresh, ver
+ * AuthService.registrarBuildApp) — null hasta el primer login/refresh tras
+ * este cambio, o para quien nunca usó la app móvil (coordinadores del portal).
+ */
+export const usuarioListItemSchema = usuarioSchema.extend({
+  createdAt: z.string(),
+  ultimoBuildApp: z.string().nullable(),
+  ultimoAccesoApp: z.string().nullable(),
+});
+
+export type UsuarioListItemOutput = z.infer<typeof usuarioListItemSchema>;
+
 export const authTokensSchema = z.object({
   accessToken: z.string(),
   refreshToken: z.string(),

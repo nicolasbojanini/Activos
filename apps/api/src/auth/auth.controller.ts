@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Headers,
   HttpCode,
   HttpStatus,
   Post,
@@ -29,8 +30,11 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @ApiOperation({ summary: 'Iniciar sesión con email y contraseña' })
-  login(@Body(new ZodValidationPipe(loginSchema)) dto: LoginDto) {
-    return this.authService.login(dto);
+  login(
+    @Body(new ZodValidationPipe(loginSchema)) dto: LoginDto,
+    @Headers('x-app-build') buildApp?: string,
+  ) {
+    return this.authService.login(dto, buildApp);
   }
 
   @Post('refresh')
@@ -39,8 +43,11 @@ export class AuthController {
   @ApiOperation({
     summary: 'Obtener un nuevo access token a partir del refresh token',
   })
-  refresh(@Body(new ZodValidationPipe(refreshSchema)) dto: RefreshDto) {
-    return this.authService.refresh(dto);
+  refresh(
+    @Body(new ZodValidationPipe(refreshSchema)) dto: RefreshDto,
+    @Headers('x-app-build') buildApp?: string,
+  ) {
+    return this.authService.refresh(dto, buildApp);
   }
 
   @Post('logout')

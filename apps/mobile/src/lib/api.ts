@@ -8,6 +8,14 @@ import { useAuthStore } from './auth-store';
  */
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000/api/v1';
 
+/**
+ * Mismo valor que se muestra en pantalla como "v1.NN" (ver VERSION_APP en
+ * InicioScreen.tsx). El backend lo guarda en login/refresh (ver
+ * AuthService.registrarBuildApp) para que un coordinador pueda ver desde el
+ * portal quién sigue en una versión vieja y pedirle que actualice.
+ */
+const BUILD_APP = process.env.EXPO_PUBLIC_BUILD_NUMBER ?? 'dev';
+
 export class ApiError extends Error {
   status: number;
 
@@ -36,7 +44,7 @@ async function refreshAccessToken(): Promise<string | null> {
   if (!refreshPromise) {
     refreshPromise = fetch(`${API_URL}/auth/refresh`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-App-Build': BUILD_APP },
       body: JSON.stringify({ refreshToken }),
     })
       .then(async (res) => {
@@ -68,6 +76,7 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}, re
     ...rest,
     headers: {
       'Content-Type': 'application/json',
+      'X-App-Build': BUILD_APP,
       ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
       ...headers,
     },

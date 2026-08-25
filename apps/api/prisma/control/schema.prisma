@@ -34,6 +34,15 @@ model Usuario {
   asignaciones AsignacionProyecto[]
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+
+  /// Build de la app móvil (EXPO_PUBLIC_BUILD_NUMBER, ver build-android-apk.yml)
+  /// visto por última vez para este usuario — null hasta su primer login/refresh
+  /// tras este cambio, o si nunca usó la app móvil (coordinadores en el portal
+  /// web, por ejemplo). Se actualiza en login y refresh (ver AuthService), no en
+  /// cada request: el access token dura 15 minutos, así que cualquier dispositivo
+  /// en uso activo lo refresca solo con esa frecuencia.
+  ultimoBuildApp  String?
+  ultimoAccesoApp DateTime?
 }
 
 /// Un cliente (pyme auditada) = una base de datos física separada (ver dbName).

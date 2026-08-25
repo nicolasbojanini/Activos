@@ -30,6 +30,8 @@ export class UsuariosService {
         rol: true,
         activo: true,
         createdAt: true,
+        ultimoBuildApp: true,
+        ultimoAccesoApp: true,
       },
     });
   }

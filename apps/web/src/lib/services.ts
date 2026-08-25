@@ -29,6 +29,7 @@ import type {
   ProyectoOutput,
   RegistroHistorialOutput,
   ResumenProyectoOutput,
+  UsuarioListItemOutput,
   UsuarioOutput,
 } from '@adn/shared';
 import { apiFetch } from './api';
@@ -132,7 +133,7 @@ export function actualizarCampoUbicacion(
 }
 
 export function getUsuarios() {
-  return apiFetch<UsuarioOutput[]>('/usuarios');
+  return apiFetch<UsuarioListItemOutput[]>('/usuarios');
 }
 
 /** Para el rol CLIENTE: su única asignación (clienteId+proyectoId), o null si todavía no le asignaron ninguna. */

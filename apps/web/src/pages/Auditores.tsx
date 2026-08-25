@@ -27,6 +27,20 @@ const ROL_LABEL: Record<Rol, string> = {
 /** Roles con un único proyecto activo a la vez (muestran el panel de asignación). */
 const ROLES_CON_ASIGNACION: Rol[] = ['AUDITOR', 'CLIENTE'];
 
+const formatoRelativo = new Intl.RelativeTimeFormat('es', { numeric: 'auto' });
+
+/**
+ * "hace 3 días" a partir de ultimoAccesoApp — se actualiza en cada login/refresh
+ * de la app móvil (cada ~15 min de uso activo, ver AuthService.registrarBuildApp),
+ * así que sirve tanto para saber la versión como para notar quién dejó de
+ * sincronizar del todo.
+ */
+function formatearUltimoAcceso(iso: string): string {
+  const dias = Math.round((Date.now() - new Date(iso).getTime()) / 86_400_000);
+  if (dias === 0) return 'hoy';
+  return formatoRelativo.format(-dias, 'day');
+}
+
 export function Auditores() {
   const usuario = useAuthStore((s) => s.usuario);
   const queryClient = useQueryClient();
@@ -159,6 +173,7 @@ export function Auditores() {
               <th style={thStyle}>Correo</th>
               <th style={thStyle}>Rol</th>
               <th style={thStyle}>Estado</th>
+              <th style={thStyle}>Versión app</th>
               <th style={thStyle} />
             </tr>
           </thead>
@@ -179,6 +194,21 @@ export function Auditores() {
                     >
                       {usuario.activo ? 'Activo' : 'Inactivo'}
                     </span>
+                  </td>
+                  <td style={tdStyle}>
+                    {usuario.ultimoBuildApp ? (
+                      <>
+                        v1.{usuario.ultimoBuildApp}
+                        {usuario.ultimoAccesoApp && (
+                          <span style={{ color: 'var(--adn-ink-400)', fontSize: 12 }}>
+                            {' · '}
+                            {formatearUltimoAcceso(usuario.ultimoAccesoApp)}
+                          </span>
+                        )}
+                      </>
+                    ) : (
+                      <span style={{ color: 'var(--adn-ink-400)' }}>—</span>
+                    )}
                   </td>
                   <td style={{ ...tdStyle, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
                     <button
@@ -204,7 +234,7 @@ export function Auditores() {
                 </tr>
                 {expandido === usuario.id && (
                   <tr>
-                    <td colSpan={5} style={{ padding: 0, background: 'var(--adn-ink-50)' }}>
+                    <td colSpan={6} style={{ padding: 0, background: 'var(--adn-ink-50)' }}>
                       <AsignacionesPanel usuarioId={usuario.id} clientes={clientes} />
                     </td>
                   </tr>
