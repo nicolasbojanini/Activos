@@ -41,6 +41,16 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      # La plantilla de Expo SDK 51 / RN 0.74 fija ndkVersion = 26.1.10909125. Las imágenes
+      # de GitHub no lo traen preinstalado (vienen con 26.3 y 27.x), y el descargador
+      # automático de Gradle 8.8 no logra instalarlo: no entiende el formato actual del
+      # catálogo de Google ("SDK XML version 4") y el build se cuelga o falla. Se instala
+      # explícitamente con sdkmanager.
+      - name: Instalar NDK 26.1 (el que fija la plantilla de Expo SDK 51)
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;26.1.10909125"
+
       # Identificador corto de este build, horneado en la app (ver
       # actualizacion.ts) para poder comparar "qué versión tengo instalada"
       # contra la última publicada como GitHub Release. github.run_number

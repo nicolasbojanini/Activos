@@ -35,13 +35,17 @@
             "enableShrinkResourcesInReleaseBuilds": true
           }
         }
-      ]
+      ],
+      "./plugins/with-ndk-version"
     ],
     "extra": {
       "eas": {
         "projectId": "bd3d32fb-68c0-42d9-8391-99bd042ba59a"
       }
     },
-    "owner": "nbojani"
+    "owner": "nbojani",
+    "splash": {
+      "backgroundColor": "#ffffff"
+    }
   }
 }
