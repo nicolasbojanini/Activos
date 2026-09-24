@@ -1,25 +1,28 @@
 import { and, eq } from 'drizzle-orm';
 import * as XLSX from 'xlsx';
 import JSZip from 'jszip';
-import { Directory, File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { COLUMNAS_EXPORT_PENDIENTES, type FotoInput } from '@adn/shared';
 import { db } from '../db/client';
 import { colaRegistros } from '../db/schema';
 import { useAuthStore } from './auth-store';
-import { archivoLocalFoto, nombreArchivoFoto } from './fotos';
+import { nombreArchivoFoto, uriFotoLocal } from './fotos';
+import {
+  asegurarCarpeta,
+  borrarArchivo,
+  escribirBase64,
+  existeArchivo,
+  leerBase64,
+  rutaArchivo,
+  rutaCarpeta,
+} from './archivos';
 import { escribirEnCarpetaPublica } from './carpeta-publica';
 
-const carpetaExportados = new Directory(Paths.document, 'exportados');
-
-function asegurarCarpeta() {
-  if (!carpetaExportados.exists) {
-    carpetaExportados.create({ intermediates: true });
-  }
-}
+const carpetaExportados = rutaCarpeta('exportados');
 
 export interface ResultadoExportarPendientes {
-  archivo: File;
+  /** El Excel exportado. */
+  archivo: { uri: string; nombre: string };
   cantidad: number;
   /** Fotos que la cola dice que existen (fotosJson) vs. las que realmente se encontraron en el almacenamiento del celular al armar el zip. */
   fotosReferenciadas: number;
@@ -55,7 +58,7 @@ export async function exportarPendientes(): Promise<ResultadoExportarPendientes 
     .where(and(eq(colaRegistros.synced, 0), eq(colaRegistros.registroSincronizado, 0)));
   if (pendientes.length === 0) return null;
 
-  asegurarCarpeta();
+  await asegurarCarpeta(carpetaExportados);
   const fecha = new Date().toISOString().slice(0, 10);
   const disponible = await Sharing.isAvailableAsync();
 
@@ -90,12 +93,12 @@ export async function exportarPendientes(): Promise<ResultadoExportarPendientes 
       fotosReferenciadas++;
       const nombreArchivo = nombreArchivoFoto(p.codigoAnteriorSnapshot, p.codigoNuevoSnapshot, foto.orden + 1);
       try {
-        const local = archivoLocalFoto(foto.clientPhotoId);
-        if (!local.exists) {
+        const local = uriFotoLocal(foto.clientPhotoId);
+        if (!(await existeArchivo(local))) {
           faltantes.push(`${nombreArchivo} — no se encontró en el celular (clientPhotoId: ${foto.clientPhotoId})`);
           continue;
         }
-        zip.file(nombreArchivo, await local.bytes(), { date: fechaCaptura });
+        zip.file(nombreArchivo, await leerBase64(local), { base64: true, date: fechaCaptura });
         fotosEncontradas++;
       } catch (err) {
         faltantes.push(
@@ -116,17 +119,16 @@ export async function exportarPendientes(): Promise<ResultadoExportarPendientes 
       }
       const zipBase64 = await zip.generateAsync({ type: 'base64' });
       const nombreZip = `adn-fotos-pendientes-${fecha}-${pendientes.length}.zip`;
-      const archivoZip = new File(carpetaExportados, nombreZip);
-      if (archivoZip.exists) archivoZip.delete();
-      archivoZip.create();
-      archivoZip.write(zipBase64, { encoding: 'base64' });
+      const uriZip = rutaArchivo(carpetaExportados, nombreZip);
+      await borrarArchivo(uriZip);
+      await escribirBase64(uriZip, zipBase64);
 
       // Copia aparte a la carpeta pública (visible por USB) si el auditor ya
       // la configuró — best-effort, no afecta el resultado si falla.
       void escribirEnCarpetaPublica(nombreZip, zipBase64, 'application/zip');
 
       if (disponible) {
-        await Sharing.shareAsync(archivoZip.uri, {
+        await Sharing.shareAsync(uriZip, {
           mimeType: 'application/zip',
           dialogTitle: 'Exportar fotos de pendientes',
         });
@@ -164,10 +166,9 @@ export async function exportarPendientes(): Promise<ResultadoExportarPendientes 
   const base64 = XLSX.write(libro, { type: 'base64', bookType: 'xlsx' }) as string;
 
   const nombreExcel = `adn-pendientes-${fecha}-${pendientes.length}.xlsx`;
-  const archivo = new File(carpetaExportados, nombreExcel);
-  if (archivo.exists) archivo.delete();
-  archivo.create();
-  archivo.write(base64, { encoding: 'base64' });
+  const uriExcel = rutaArchivo(carpetaExportados, nombreExcel);
+  await borrarArchivo(uriExcel);
+  await escribirBase64(uriExcel, base64);
 
   void escribirEnCarpetaPublica(
     nombreExcel,
@@ -176,11 +177,11 @@ export async function exportarPendientes(): Promise<ResultadoExportarPendientes 
   );
 
   if (disponible) {
-    await Sharing.shareAsync(archivo.uri, {
+    await Sharing.shareAsync(uriExcel, {
       mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       dialogTitle: 'Exportar pendientes',
     });
   }
 
-  return { archivo, cantidad: pendientes.length, fotosReferenciadas, fotosEncontradas, errorZip };
+  return { archivo: { uri: uriExcel, nombre: nombreExcel }, cantidad: pendientes.length, fotosReferenciadas, fotosEncontradas, errorZip };
 }

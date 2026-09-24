@@ -1,5 +1,5 @@
 import * as SecureStore from 'expo-secure-store';
-import { StorageAccessFramework, writeAsStringAsync } from 'expo-file-system/legacy';
+import { StorageAccessFramework, writeAsStringAsync } from 'expo-file-system';
 
 const KEY_CARPETA_URI = 'adn.carpetaPublicaUri';
 const KEY_YA_PEDIDA = 'adn.carpetaPublicaPedida';

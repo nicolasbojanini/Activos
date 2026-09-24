@@ -229,7 +229,7 @@ export function NoRegistradoScreen({ route, navigation }: Props) {
 
   const handleQuitarFoto = (orden: number) => {
     const foto = enPantallaRef.current.fotos.find((f) => f.orden === orden);
-    if (foto) eliminarFotoLocal(foto.clientPhotoId);
+    if (foto) void eliminarFotoLocal(foto.clientPhotoId);
     const siguientes = enPantallaRef.current.fotos.filter((f) => f.orden !== orden);
     setFotos(siguientes);
     void guardarBorradorSiHayAlgo(siguientes);

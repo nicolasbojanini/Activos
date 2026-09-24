@@ -3,7 +3,9 @@ name: Build Android APK
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    # feat/android-6-compat: rama de compatibilidad con Android 6.0 (ver apps/mobile/ANDROID6.md).
+    # Sus builds se publican como PRE-release (ver el último paso), nunca como release normal.
+    branches: [main, feat/android-6-compat]
     paths:
       - 'apps/mobile/**'
       - 'packages/shared/**'
@@ -25,9 +27,14 @@ jobs:
         with:
           node-version: 20
           cache: pnpm
+          # mobile está fuera del workspace de pnpm y tiene su propio lockfile.
+          cache-dependency-path: apps/mobile/pnpm-lock.yaml
 
-      - name: Instalar dependencias del monorepo
-        run: pnpm install --frozen-lockfile
+      # mobile se instala solo (node-linker=hoisted, React 18.2, Expo SDK 51): ver
+      # pnpm-workspace.yaml y apps/mobile/ANDROID6.md. Ya no depende de instalar api/web.
+      - name: Instalar dependencias de mobile
+        working-directory: apps/mobile
+        run: pnpm install --frozen-lockfile --ignore-workspace
 
       - uses: actions/setup-java@v4
         with:
@@ -82,9 +89,26 @@ jobs:
       # se le puede compartir a un auditor por WhatsApp sin pedirle que
       # tenga acceso al repo.
       - name: Publicar GitHub Release con el APK
+        if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: apk-${{ steps.build_id.outputs.sha_short }}
           name: APK ${{ steps.build_id.outputs.sha_short }}
+          files: apps/mobile/android/app/build/outputs/apk/release/app-release.apk
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # Builds de ramas de prueba: PRE-release, a propósito. GitHub excluye los
+      # pre-releases de /releases/latest, que es lo único que consulta la app
+      # (actualizacion.ts) para avisarle al auditor "hay una versión nueva" — así un
+      # APK sin validar nunca le llega a nadie por ese aviso. Igual queda con link
+      # público directo para instalarlo a mano en las PDAs de prueba.
+      - name: Publicar PRE-release del APK (rama de pruebas)
+        if: github.ref != 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: apk-prueba-${{ github.run_number }}-${{ steps.build_id.outputs.sha_short }}
+          target_commitish: ${{ github.sha }}
+          name: APK de prueba #${{ github.run_number }} (${{ github.ref_name }}, ${{ steps.build_id.outputs.sha_short }})
+          prerelease: true
           files: apps/mobile/android/app/build/outputs/apk/release/app-release.apk
           token: ${{ secrets.GITHUB_TOKEN }}

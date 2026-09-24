@@ -1,3 +1,10 @@
+# apps/mobile queda FUERA del workspace a propósito: necesita Expo SDK 51 (única
+# línea de React Native que todavía corre en Android 6.0 / API 23, ver
+# apps/mobile/ANDROID6.md), y SDK 51 exige `node-linker=hoisted` de pnpm y React
+# 18.2 — mientras que web usa React 19. Compartir instalación obligaría a hoistear
+# dos Reacts distintos en la misma raíz. Mobile se instala sola, con su propio
+# lockfile: `pnpm install --ignore-workspace` dentro de apps/mobile.
 packages:
-  - "apps/*"
+  - "apps/api"
+  - "apps/web"
   - "packages/*"

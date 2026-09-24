@@ -1,7 +1,8 @@
 import { eq, lt } from 'drizzle-orm';
 import { db } from '../db/client';
 import { borradores } from '../db/schema';
-import { archivoLocalFoto, eliminarFotoLocal, type FotoCapturada } from './fotos';
+import { eliminarFotoLocal, uriFotoLocal, type FotoCapturada } from './fotos';
+import { existeArchivo } from './archivos';
 
 /**
  * Un borrador más viejo que esto se descarta: pasado un día de trabajo, lo que
@@ -73,10 +74,19 @@ export async function leerBorrador<F = BorradorForm>(clave: string): Promise<Bor
 
   try {
     const datos = JSON.parse(fila.datosJson) as BorradorAuditoria<F>;
+    const conArchivo = await Promise.all(
+      (datos.fotos ?? []).map(async (f) => {
+        // Un fallo de I/O al chequear NO debe caer al catch de abajo: ahí se borra el
+        // borrador por "JSON corrupto", y perder el trabajo del auditor por un error
+        // de disco pasajero es justo lo que este mecanismo existe para evitar.
+        const existe = await existeArchivo(uriFotoLocal(f.clientPhotoId)).catch(() => false);
+        return existe ? f : null;
+      }),
+    );
     return {
       form: datos.form,
       valoresExtra: datos.valoresExtra ?? {},
-      fotos: (datos.fotos ?? []).filter((f) => archivoLocalFoto(f.clientPhotoId).exists),
+      fotos: conArchivo.filter((f): f is FotoCapturada => f !== null),
     };
   } catch {
     // JSON corrupto: mejor arrancar limpio que dejar la pantalla rota para siempre.
@@ -94,7 +104,7 @@ export async function borrarBorrador(clave: string): Promise<void> {
  * quedarían ocupando espacio en el teléfono sin que nada vuelva a apuntarlos.
  */
 export async function descartarBorrador(clave: string, fotos: FotoCapturada[]): Promise<void> {
-  for (const foto of fotos) eliminarFotoLocal(foto.clientPhotoId);
+  await Promise.all(fotos.map((foto) => eliminarFotoLocal(foto.clientPhotoId)));
   await borrarBorrador(clave);
 }
 

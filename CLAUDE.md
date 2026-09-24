@@ -56,7 +56,7 @@ clientes; `AUDITOR` solo ve los proyectos a los que fue asignado explícitamente
 
 ## Comandos
 - pnpm dev                               # levanta api + web (turbo)
-- pnpm --filter mobile start              # Metro; escanear con Expo Go
+- cd apps/mobile && pnpm install --ignore-workspace && pnpm start   # Metro (mobile va fuera del workspace, ver nota Android 6.0)
 - pnpm --filter api prisma:generate       # genera ambos clientes Prisma (control + tenant)
 - pnpm --filter api prisma:migrate:control  # migración de la control DB
 - pnpm --filter api prisma:migrate:tenant:dev  # migración del schema tenant (contra TENANT_DATABASE_URL)
@@ -117,6 +117,15 @@ funciona offline donde aplica.
 > `eas go`/TestFlight) ni Xcode local, SDK 54 es la única forma de probar con el Expo Go público en
 > iOS y Android. Verificar antes de volver a subir de SDK: https://expo.dev/changelog (buscar el
 > changelog de "Expo Go and the App Store").
+
+> **Nota móvil (2026-09, Android 6.0):** 10 PDAs Chainway C71 corren Android 6.0 (API 23) sin
+> posibilidad de actualizar el sistema. El móvil bajó de SDK 54 a **Expo SDK 51 / React Native 0.74**,
+> la última línea con `minSdkVersion 23` (SDK 52+ exige 24). Una sola app sirve para las PDAs y para
+> los teléfonos actuales. **`apps/mobile` salió del workspace de pnpm** (SDK 51 exige
+> `node-linker=hoisted` y React 18.2, y web usa React 19): se instala con
+> `cd apps/mobile && pnpm install --ignore-workspace`, y `pnpm --filter mobile ...` ya no aplica. Detalle,
+> cambios de código y checklist de prueba en PDA: `apps/mobile/ANDROID6.md`. Los builds de la rama
+> `feat/android-6-compat` salen como pre-release para no llegarle a nadie por el aviso de actualización.
 
 > **Nota M11 (2026-07, reconexión móvil):** móvil ya llama todas las rutas tenant-scoped con
 > `/clientes/:clienteId/...` en vez de las rutas viejas de M8. El `clienteId`/`proyectoId` NO se

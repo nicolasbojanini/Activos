@@ -1,11 +1,12 @@
 import { eq } from 'drizzle-orm';
-import { uploadAsync } from 'expo-file-system/legacy';
+import { uploadAsync } from 'expo-file-system';
 import type { RegistroAuditoriaInput } from '@adn/shared';
 import { db } from '../db/client';
 import { activosLocal, colaRegistros } from '../db/schema';
 import { aplicarCambiosAlEspejoLocal } from '../db/sync';
 import { crearRegistro, confirmarFotosRegistro } from './services';
-import { archivarFotosLocal, archivoLocalFoto, eliminarFotoLocal, type FotoCapturada } from './fotos';
+import { archivarFotosLocal, eliminarFotoLocal, uriFotoLocal, type FotoCapturada } from './fotos';
+import { infoArchivo } from './archivos';
 
 type FotoLocalConDimensiones = Pick<FotoCapturada, 'clientPhotoId' | 'etiqueta' | 'orden' | 'ancho' | 'alto'>;
 
@@ -96,20 +97,21 @@ async function subirYConfirmarFotos(
   // eran picos de memoria innecesarios en teléfonos de gama baja.
   const resultados = await Promise.all(
     uploads.map(async (upload) => {
-      const archivo = archivoLocalFoto(upload.clientPhotoId);
+      const uriLocal = uriFotoLocal(upload.clientPhotoId);
+      const archivo = await infoArchivo(uriLocal);
       // El backend (crearRegistro) ya filtra `uploads` a solo las fotos con
       // bytes:null — si esta foto está acá, el servidor SIGUE esperándola. Que
       // el archivo de trabajo no exista nunca es "ya se subió antes": es
       // pérdida real (archivo borrado antes de confirmar) y hay que tratarla
       // como fallo para que se reintente, no darla por buena en silencio (ver
       // incidente Decameron DMZ 00465-00476, agosto 2026).
-      if (!archivo.exists) {
+      if (!archivo.existe) {
         console.warn('[sync] foto sin archivo local al subir, se reintentará', upload.clientPhotoId);
         return undefined;
       }
 
       const metadata = fotosLocal.find((f) => f.clientPhotoId === upload.clientPhotoId);
-      const respuesta = await uploadAsync(upload.uploadUrl, archivo.uri, {
+      const respuesta = await uploadAsync(upload.uploadUrl, uriLocal, {
         httpMethod: 'PUT',
         headers: { 'Content-Type': 'image/jpeg' },
       });
@@ -120,7 +122,7 @@ async function subirYConfirmarFotos(
         s3Key: upload.s3Key,
         ancho: metadata?.ancho ?? 0,
         alto: metadata?.alto ?? 0,
-        bytes: archivo.size,
+        bytes: archivo.tamano,
       };
     }),
   );
@@ -131,7 +133,7 @@ async function subirYConfirmarFotos(
   if (confirmaciones.length === 0) return true;
 
   await confirmarFotosRegistro(registroId, confirmaciones);
-  for (const c of confirmaciones) eliminarFotoLocal(c.clientPhotoId);
+  for (const c of confirmaciones) await eliminarFotoLocal(c.clientPhotoId);
   return true;
 }
 

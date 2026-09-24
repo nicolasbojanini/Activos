@@ -1,16 +1,19 @@
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
-import { Directory, File, Paths } from 'expo-file-system';
 import * as ImagePicker from 'expo-image-picker';
 import * as Crypto from 'expo-crypto';
 import { escribirEnCarpetaPublica } from './carpeta-publica';
+import {
+  asegurarCarpeta,
+  borrarArchivo,
+  copiarArchivo,
+  existeArchivo,
+  leerBase64,
+  rutaArchivo,
+  rutaCarpeta,
+} from './archivos';
 
-const carpetaFotos = new Directory(Paths.document, 'fotos');
-
-function asegurarCarpeta() {
-  if (!carpetaFotos.exists) {
-    carpetaFotos.create({ intermediates: true });
-  }
-}
+/** Copias de trabajo, nombradas por clientPhotoId (se borran al confirmarse la subida). */
+const carpetaFotos = rutaCarpeta('fotos');
 
 /** Nombre de carpeta/archivo sin caracteres que rompan el sistema de archivos. */
 export function sanear(texto: string): string {
@@ -51,13 +54,7 @@ export function nombreArchivoFoto(
  * mismo ZIP si el rango de fechas incluye más de un reproceso — ahí la
  * fecha de captura (metadata del archivo) es lo que permite distinguirlas.
  */
-const carpetaArchivo = new Directory(Paths.document, 'archivo-fotos');
-
-function asegurarCarpetaArchivo() {
-  if (!carpetaArchivo.exists) {
-    carpetaArchivo.create({ intermediates: true });
-  }
-}
+const carpetaArchivo = rutaCarpeta('archivo-fotos');
 
 /**
  * Copia cada foto ya capturada (por clientPhotoId) al respaldo permanente. No
@@ -75,22 +72,24 @@ export async function archivarFotosLocal(
   if (fotos.length === 0) return;
 
   for (const foto of fotos) {
-    const origen = archivoLocalFoto(foto.clientPhotoId);
-    if (!origen.exists) continue;
+    const origen = uriFotoLocal(foto.clientPhotoId);
+    if (!(await existeArchivo(origen))) continue;
     const nombre = nombreArchivoFoto(codigoAnterior, codigoNuevo, foto.orden + 1);
 
     try {
-      const base64 = await origen.base64();
+      const base64 = await leerBase64(origen);
       if (await escribirEnCarpetaPublica(nombre, base64, 'image/jpeg')) continue;
     } catch {
       // Sigue al respaldo interno.
     }
 
     try {
-      asegurarCarpetaArchivo();
-      const destino = new File(carpetaArchivo, nombre);
-      if (destino.exists) destino.delete();
-      origen.copy(destino);
+      await asegurarCarpeta(carpetaArchivo);
+      const destino = rutaArchivo(carpetaArchivo, nombre);
+      // La API clásica no garantiza sobrescribir al copiar: se borra antes, así
+      // "la última captura gana" (ver el comentario de arriba) se cumple igual.
+      await borrarArchivo(destino);
+      await copiarArchivo(origen, destino);
     } catch {
       // El respaldo es un extra, no debe interrumpir el flujo de captura/sincronización.
     }
@@ -143,22 +142,20 @@ export async function capturarFoto(etiqueta: string, orden: number): Promise<Fot
     format: SaveFormat.JPEG,
   });
 
-  asegurarCarpeta();
+  await asegurarCarpeta(carpetaFotos);
   const clientPhotoId = Crypto.randomUUID();
-  const origen = new File(manipulada.uri);
-  const destino = new File(carpetaFotos, `${clientPhotoId}.jpg`);
-  await origen.copy(destino);
+  const destino = uriFotoLocal(clientPhotoId);
+  await copiarArchivo(manipulada.uri, destino);
 
-  return { clientPhotoId, localUri: destino.uri, etiqueta, orden, ancho: manipulada.width, alto: manipulada.height };
+  return { clientPhotoId, localUri: destino, etiqueta, orden, ancho: manipulada.width, alto: manipulada.height };
 }
 
-export function archivoLocalFoto(clientPhotoId: string): File {
-  return new File(carpetaFotos, `${clientPhotoId}.jpg`);
+/** URI de la copia de trabajo de una foto (puede no existir: ya se subió, o nunca se guardó). */
+export function uriFotoLocal(clientPhotoId: string): string {
+  return `${carpetaFotos}${clientPhotoId}.jpg`;
 }
 
-export function eliminarFotoLocal(clientPhotoId: string) {
-  const archivo = archivoLocalFoto(clientPhotoId);
-  if (archivo.exists) {
-    archivo.delete();
-  }
+/** Borra la copia de trabajo; no falla si ya no existe. */
+export async function eliminarFotoLocal(clientPhotoId: string): Promise<void> {
+  await borrarArchivo(uriFotoLocal(clientPhotoId));
 }
