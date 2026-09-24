@@ -126,6 +126,8 @@ funciona offline donde aplica.
 > `cd apps/mobile && pnpm install --ignore-workspace`, y `pnpm --filter mobile ...` ya no aplica. Detalle,
 > cambios de código y checklist de prueba en PDA: `apps/mobile/ANDROID6.md`. Los builds de la rama
 > `feat/android-6-compat` salen como pre-release para no llegarle a nadie por el aviso de actualización.
+> **Bloqueante descubierto**: Android 6.0 no confía en los certificados Let's Encrypt de Railway (falta la raíz
+> ISRG X1); hay que instalarla en cada PDA o resolverlo de otra forma. Ver `docs/android6/tls-y-pruebas.md`.
 
 > **Nota M11 (2026-07, reconexión móvil):** móvil ya llama todas las rutas tenant-scoped con
 > `/clientes/:clienteId/...` en vez de las rutas viejas de M8. El `clienteId`/`proyectoId` NO se
