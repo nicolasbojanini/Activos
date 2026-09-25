@@ -127,12 +127,36 @@ async function obtenerCursorActivos(): Promise<string | null> {
   return fila?.valor ?? null;
 }
 
+/**
+ * Tope de parámetros por sentencia SQL enviada al módulo nativo de expo-sqlite.
+ *
+ * expo-modules-core convierte cada valor JS de una llamada nativa en un objeto Java
+ * (NewStringUTF por cada texto) sin liberar las referencias locales JNI hasta que
+ * la llamada termina. ART en Android 6.0/7.x (API 23-25) aborta el proceso con
+ * "local reference table overflow (max=512)" al pasar de 512 vivas; desde Android 8
+ * ese tope ya no existe, por eso solo se veía en las PDAs y solo con inventarios
+ * grandes (un insert de 500 filas × 26 columnas mandaba 13.000 valores de golpe).
+ * Se deja holgura frente a los 512 para las referencias que el propio módulo
+ * mantiene vivas en esa llamada.
+ */
+const MAX_PARAMS_POR_SENTENCIA = 200;
+
+/** Cuántas filas de `columnas` columnas caben en un solo INSERT sin pasar el tope. */
+function filasPorLote(columnas: number): number {
+  return Math.max(1, Math.floor(MAX_PARAMS_POR_SENTENCIA / Math.max(1, columnas)));
+}
+
+function enLotes<T>(items: readonly T[], tamano: number): T[][] {
+  const lotes: T[][] = [];
+  for (let i = 0; i < items.length; i += tamano) lotes.push(items.slice(i, i + tamano));
+  return lotes;
+}
+
 function refrescarUbicacionesLocal(tx: Parameters<Parameters<typeof db.transaction>[0]>[0], ubicaciones: UbicacionOutput[]) {
   tx.delete(ubicacionesLocal).run();
-  if (ubicaciones.length > 0) {
-    tx.insert(ubicacionesLocal)
-      .values(ubicaciones.map((u) => ({ id: u.id, codigo: u.codigo, sede: u.sede, detalle: u.detalle })))
-      .run();
+  const filas = ubicaciones.map((u) => ({ id: u.id, codigo: u.codigo, sede: u.sede, detalle: u.detalle }));
+  for (const lote of enLotes(filas, filasPorLote(4))) {
+    tx.insert(ubicacionesLocal).values(lote).run();
   }
 }
 
@@ -150,15 +174,16 @@ export async function descargarSesion(proyecto: ProyectoOutput) {
 
   // El driver expo-sqlite de drizzle es síncrono: la transacción única evita
   // un fsync por fila, y el insert multi-fila evita preparar miles de
-  // statements (uno por activo). Lotes de 500: 500 filas × ~25 columnas =
-  // 12.500 parámetros, holgado frente al límite de 32.766 de SQLite.
-  const LOTE = 500;
+  // statements (uno por activo). El tamaño del lote lo fija el tope de
+  // parámetros por llamada nativa (ver MAX_PARAMS_POR_SENTENCIA), no el límite
+  // de SQLite: en Android 6/7 un lote grande tumba la app.
+  const lote = filasPorLote(filas.length > 0 ? Object.keys(filas[0]).length : 1);
   db.transaction((tx) => {
     tx.delete(activosLocal).run();
     refrescarUbicacionesLocal(tx, ubicaciones);
 
-    for (let i = 0; i < filas.length; i += LOTE) {
-      tx.insert(activosLocal).values(filas.slice(i, i + LOTE)).run();
+    for (const grupo of enLotes(filas, lote)) {
+      tx.insert(activosLocal).values(grupo).run();
     }
   });
 
@@ -373,15 +398,18 @@ export async function calcularResumenLocal(): Promise<ResumenLocal> {
   }
 
   if (ultimaPorActivo.size > 0) {
-    const filas = await db
-      .select({ id: activosLocal.id, estadoServidor: activosLocal.estadoServidor })
-      .from(activosLocal)
-      .where(inArray(activosLocal.id, [...ultimaPorActivo.keys()]));
-    for (const fila of filas) {
-      const efectivo = ultimaPorActivo.get(fila.id)!.estado;
-      if (efectivo !== fila.estadoServidor) {
-        porEstado.set(fila.estadoServidor, (porEstado.get(fila.estadoServidor) ?? 1) - 1);
-        porEstado.set(efectivo, (porEstado.get(efectivo) ?? 0) + 1);
+    // En lotes por el mismo tope de parámetros nativos que los inserts (ver MAX_PARAMS_POR_SENTENCIA).
+    for (const ids of enLotes([...ultimaPorActivo.keys()], MAX_PARAMS_POR_SENTENCIA)) {
+      const filas = await db
+        .select({ id: activosLocal.id, estadoServidor: activosLocal.estadoServidor })
+        .from(activosLocal)
+        .where(inArray(activosLocal.id, ids));
+      for (const fila of filas) {
+        const efectivo = ultimaPorActivo.get(fila.id)!.estado;
+        if (efectivo !== fila.estadoServidor) {
+          porEstado.set(fila.estadoServidor, (porEstado.get(fila.estadoServidor) ?? 1) - 1);
+          porEstado.set(efectivo, (porEstado.get(efectivo) ?? 0) + 1);
+        }
       }
     }
   }

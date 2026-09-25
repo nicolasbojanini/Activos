@@ -75,6 +75,24 @@ Esto no se puede probar sin el equipo físico:
    conserva los pendientes de la cola.
 6. Exportar pendientes (Excel + zip de fotos).
 
+## Límite de referencias JNI en Android 6/7 (cierre con inventarios grandes)
+
+Con un cliente real (miles de activos) la app se cerraba en la PDA justo después de iniciar
+sesión: "Se ha detenido la aplicación". El registro (logcat / informe de errores) decía
+`JNI ERROR (app bug): local reference table overflow (max=512)` en `NewStringUTF`, dentro de
+`libexpo-modules-core.so`, en el hilo JS. expo-modules-core convierte cada valor JS de una llamada
+nativa en un objeto Java y mantiene esas referencias locales vivas hasta que la llamada termina;
+ART de Android 6.0/7.x aborta al pasar de 512, y desde Android 8 ese tope ya no existe. Por eso
+solo pasaba en las PDAs y solo con volumen (el insert de la descarga mandaba lotes de 500 filas ×
+26 columnas = 13.000 valores en una sola sentencia).
+
+Regla para el móvil: **ninguna llamada nativa debe recibir más de ~200 valores**. `db/sync.ts` lo
+aplica con `MAX_PARAMS_POR_SENTENCIA` (inserts de activos y ubicaciones y el `inArray` del resumen
+van por lotes). Cualquier `INSERT`/`IN (...)` masivo nuevo debe usar `enLotes`/`filasPorLote`.
+Verificado en emulador Android 6.0 con el usuario de prueba y un cliente de 3.435 activos: descarga
+completa, lista y ficha sin cierres. No verificado: campos de fecha/valor de la ficha (`Intl`) porque ese
+cliente no los trae, y volúmenes de ~9 mil activos.
+
 ## Desviaciones conocidas respecto a lo que Expo recomienda para SDK 51
 
 `npx expo install --check` marca dos paquetes de desarrollo (no van en el APK): `typescript` (se
