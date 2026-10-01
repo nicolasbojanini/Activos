@@ -49,7 +49,16 @@ async function refreshAccessToken(): Promise<string | null> {
     })
       .then(async (res) => {
         if (!res.ok) {
-          await clear();
+          // Solo un 401 significa "este refresh token ya no sirve" (vencido,
+          // mal firmado, o el usuario fue desactivado — ver AuthService.refresh).
+          // Cualquier otra respuesta (429 del límite por IP de /auth/refresh,
+          // compartido por varios dispositivos en la misma red — ver
+          // UserThrottlerGuard —, o un 5xx transitorio del servidor) NO es un
+          // rechazo de la sesión: antes se borraba el token con cualquier
+          // !res.ok, así que bastaba con que varias PDAs en la misma bodega
+          // coincidieran refrescando en la misma ventana de un minuto para que
+          // a todas les tocara volver a iniciar sesión sin motivo.
+          if (res.status === 401) await clear();
           return null;
         }
         const data = (await res.json()) as { accessToken: string };

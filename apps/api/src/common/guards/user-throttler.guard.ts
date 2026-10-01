@@ -15,6 +15,11 @@ interface JwtAccessPayload {
   type?: string;
 }
 
+interface JwtRefreshPayload {
+  sub?: string;
+  type?: string;
+}
+
 /**
  * Cuenta el límite por USUARIO autenticado, no por IP.
  *
@@ -32,13 +37,23 @@ interface JwtAccessPayload {
  * para estrenar un cupo limpio en cada request y saltarse el límite por
  * completo.
  *
- * Las rutas anónimas (login, refresh) y cualquier token inválido o vencido
- * siguen contando por IP — ahí todavía no hay usuario, y el límite por IP es
+ * Las rutas anónimas (login) y cualquier token inválido o vencido siguen
+ * contando por IP — ahí todavía no hay usuario, y el límite por IP es
  * justamente la protección que se busca contra fuerza bruta.
+ *
+ * `/auth/refresh` es la excepción: no manda el access token por header (ya
+ * venció, para eso se está refrescando), pero sí manda el refresh token en el
+ * body, y ese también se puede verificar para sacar el usuario. Sin esto,
+ * varios dispositivos detrás del mismo NAT (una bodega, varias PDAs en el
+ * mismo wifi) comparten un solo cupo de refrescos por minuto, y el primero
+ * que se adelanta le agota el cupo a los demás — ver el comentario en
+ * `refreshAccessToken` de `apps/mobile/src/lib/api.ts`, que además ya no
+ * cierra la sesión del dispositivo cuando eso pasa, pero mejor que no pase.
  */
 @Injectable()
 export class UserThrottlerGuard extends ThrottlerGuard {
   private readonly secret: string;
+  private readonly refreshSecret: string;
 
   // Los dos primeros parámetros van con decorador explícito porque sus tipos
   // no son clases inyectables: `ThrottlerGuard` los declara así en su propio
@@ -54,6 +69,7 @@ export class UserThrottlerGuard extends ThrottlerGuard {
   ) {
     super(options, storageService, reflector);
     this.secret = config.getOrThrow<string>('JWT_ACCESS_SECRET');
+    this.refreshSecret = config.getOrThrow<string>('JWT_REFRESH_SECRET');
   }
 
   protected getTracker(req: Record<string, unknown>): Promise<string> {
@@ -72,6 +88,20 @@ export class UserThrottlerGuard extends ThrottlerGuard {
       } catch {
         // Token vencido, mal firmado o ilegible: se cuenta por IP, igual que
         // una request anónima.
+      }
+    }
+
+    const body = req.body as { refreshToken?: unknown } | undefined;
+    if (typeof body?.refreshToken === 'string') {
+      try {
+        const payload = this.jwt.verify<JwtRefreshPayload>(body.refreshToken, {
+          secret: this.refreshSecret,
+        });
+        if (payload.type === 'refresh' && payload.sub) {
+          return Promise.resolve(`usuario:${payload.sub}`);
+        }
+      } catch {
+        // Refresh token vencido, mal firmado o ilegible: se cuenta por IP.
       }
     }
 
