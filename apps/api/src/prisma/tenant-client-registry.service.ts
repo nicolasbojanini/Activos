@@ -54,6 +54,28 @@ export class TenantClientRegistryService implements OnModuleDestroy {
     await client.$disconnect();
   }
 
+  /**
+   * Abre una conexión de un solo uso a la base de un cliente SIN importar su
+   * `estado` (getClient() solo sirve ACTIVOS) y la cierra siempre al terminar.
+   * No toca el cache de arriba, así que un cliente suspendido sigue sin poder
+   * entrar por las rutas normales. Pensado para mantenimiento — hoy, leer qué
+   * fotos tiene un cliente suspendido antes de borrarlo.
+   */
+  async conClienteDeMantenimiento<T>(
+    cliente: { dbHost: string; dbPort: number; dbName: string },
+    fn: (client: TenantPrismaClient) => Promise<T>,
+  ): Promise<T> {
+    const client = new TenantPrismaClient({
+      datasourceUrl: this.buildConnectionUrl(cliente),
+    });
+    try {
+      await client.$connect();
+      return await fn(client);
+    } finally {
+      await client.$disconnect();
+    }
+  }
+
   private buildConnectionUrl(cliente: {
     dbHost: string;
     dbPort: number;

@@ -2,6 +2,7 @@ import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   CreateBucketCommand,
+  DeleteObjectsCommand,
   GetObjectCommand,
   HeadBucketCommand,
   HeadObjectCommand,
@@ -12,6 +13,8 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 const EXPIRACION_SUBIDA_SEGUNDOS = 5 * 60;
 const EXPIRACION_DESCARGA_SEGUNDOS = 60 * 60;
+/** Tope de S3 por llamada a DeleteObjects. */
+const MAX_OBJETOS_POR_BORRADO = 1000;
 
 @Injectable()
 export class S3Service implements OnModuleInit {
@@ -117,6 +120,31 @@ export class S3Service implements OnModuleInit {
     const respuesta = await this.client.send(command);
     const bytes = await respuesta.Body!.transformToByteArray();
     return Buffer.from(bytes);
+  }
+
+  /**
+   * Borra objetos del bucket en lotes de hasta 1.000 (el máximo de S3). Borrar
+   * una clave que ya no existe no es error en S3/MinIO, así que reintentar
+   * después de una falla a medias es seguro. Si cualquier objeto no se pudo
+   * borrar, lanza — quien llama decide si continúa, y en el borrado de un
+   * cliente la respuesta correcta es no seguir (ver ClientesService.eliminar).
+   */
+  async eliminarObjetos(s3Keys: string[]): Promise<void> {
+    for (let i = 0; i < s3Keys.length; i += MAX_OBJETOS_POR_BORRADO) {
+      const lote = s3Keys.slice(i, i + MAX_OBJETOS_POR_BORRADO);
+      const respuesta = await this.client.send(
+        new DeleteObjectsCommand({
+          Bucket: this.bucket,
+          Delete: { Objects: lote.map((Key) => ({ Key })), Quiet: true },
+        }),
+      );
+      const errores = respuesta.Errors ?? [];
+      if (errores.length > 0) {
+        throw new Error(
+          `No se pudieron borrar ${errores.length} de ${lote.length} objetos (primero: ${errores[0].Key ?? '?'} — ${errores[0].Message ?? errores[0].Code ?? 'sin detalle'})`,
+        );
+      }
+    }
   }
 
   /**

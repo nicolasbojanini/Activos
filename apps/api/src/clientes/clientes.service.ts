@@ -1,19 +1,25 @@
 import {
   BadRequestException,
   Injectable,
+  InternalServerErrorException,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import type { ActualizarClienteInput, CrearClienteInput } from '@adn/shared';
 import { ControlPrismaService } from '../prisma/control-prisma.service';
 import { TenantClientRegistryService } from '../prisma/tenant-client-registry.service';
+import { S3Service } from '../files/s3.service';
 import { provisionTenant } from '../../scripts/provision-tenant';
 import { dropTenantDatabase } from '../../scripts/db-admin';
 
 @Injectable()
 export class ClientesService {
+  private readonly logger = new Logger(ClientesService.name);
+
   constructor(
     private readonly control: ControlPrismaService,
     private readonly tenants: TenantClientRegistryService,
+    private readonly s3: S3Service,
   ) {}
 
   findAll() {
@@ -57,9 +63,54 @@ export class ClientesService {
   }
 
   /**
-   * Elimina PERMANENTEMENTE la base de datos física de un cliente. Irreversible.
-   * Solo permitido si el cliente ya está SUSPENDIDO (paso previo obligatorio),
-   * como red de seguridad para no borrar por error un cliente en uso.
+   * Borra de MinIO todas las fotos de un cliente. Las claves
+   * (`fotos/{clientId}/{clientPhotoId}.jpg`) no llevan ningún prefijo del
+   * cliente, así que la única forma de saber cuáles son suyas es la tabla Foto
+   * de su base — por eso esto tiene que correr ANTES de dropear esa base. Cada
+   * foto declarada por un registro tiene su fila Foto (con `s3Key`) desde que
+   * el registro se crea, esté o no confirmada la subida, así que la lista cubre
+   * también las subidas a medias.
+   *
+   * Lee de a 1.000 filas con cursor para no cargar un cliente grande entero en
+   * memoria; borrar una clave inexistente no es error, así que un reintento
+   * tras una falla a medias es seguro.
+   */
+  private async eliminarFotosDeCliente(cliente: {
+    id: string;
+    dbHost: string;
+    dbPort: number;
+    dbName: string;
+  }): Promise<number> {
+    return this.tenants.conClienteDeMantenimiento(cliente, async (tenant) => {
+      let total = 0;
+      let cursor: string | undefined;
+      for (;;) {
+        const fotos = await tenant.foto.findMany({
+          select: { id: true, s3Key: true },
+          orderBy: { id: 'asc' },
+          take: 1000,
+          ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
+        });
+        if (fotos.length === 0) break;
+        await this.s3.eliminarObjetos(fotos.map((foto) => foto.s3Key));
+        total += fotos.length;
+        cursor = fotos[fotos.length - 1].id;
+      }
+      return total;
+    });
+  }
+
+  /**
+   * Elimina PERMANENTEMENTE un cliente: sus fotos en MinIO y su base de datos
+   * física. Irreversible. Solo permitido si el cliente ya está SUSPENDIDO (paso
+   * previo obligatorio), como red de seguridad para no borrar por error un
+   * cliente en uso.
+   *
+   * Orden deliberado: primero las fotos, después la base. La base es el único
+   * índice de qué objetos de MinIO son de este cliente; si se dropeara primero y
+   * el borrado de fotos fallara, esas fotos quedarían huérfanas para siempre
+   * (así se llenó el volumen de MinIO antes de este cambio). Si algo falla acá,
+   * se aborta SIN tocar la base y se puede reintentar.
    */
   async eliminar(clienteId: string): Promise<void> {
     const cliente = await this.control.cliente.findUnique({
@@ -75,6 +126,21 @@ export class ClientesService {
     }
 
     await this.tenants.evict(clienteId);
+
+    try {
+      const fotos = await this.eliminarFotosDeCliente(cliente);
+      this.logger.log(
+        `Cliente ${cliente.nombre} (${clienteId}): ${fotos} fotos borradas de MinIO`,
+      );
+    } catch (err) {
+      this.logger.error(
+        `No se pudieron borrar las fotos del cliente ${clienteId} en MinIO; se aborta sin borrar su base de datos: ${String(err)}`,
+      );
+      throw new InternalServerErrorException(
+        'No se pudieron borrar las fotos del cliente en el almacenamiento. No se borró nada más — intenta de nuevo.',
+      );
+    }
+
     await dropTenantDatabase(cliente.dbName);
 
     await this.control.$transaction([

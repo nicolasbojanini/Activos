@@ -43,7 +43,7 @@ export function Clientes() {
 
   const handleEliminar = (id: string, nombreCliente: string) => {
     const confirmado = window.confirm(
-      `¿Eliminar "${nombreCliente}" permanentemente? Esto borra su base de datos completa y no se puede deshacer. Asegúrate de haber descargado los reportes y fotos antes de continuar.`,
+      `¿Eliminar "${nombreCliente}" permanentemente? Esto borra su base de datos completa y todas sus fotos del almacenamiento, y no se puede deshacer. Asegúrate de haber descargado los reportes y las fotos antes de continuar.`,
     );
     if (confirmado) eliminarMutation.mutate(id);
   };

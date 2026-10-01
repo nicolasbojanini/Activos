@@ -169,6 +169,14 @@ funciona offline donde aplica.
 > `buscarUbicacionPorCodigo`/`getUbicaciones` en `lib/services.ts` ya usan el prefijo
 > `/clientes/:clienteId/...` desde M11.
 
+> **Nota borrado de clientes (2026-10):** `DELETE /clientes/:clienteId` (solo clientes SUSPENDIDOS) borra
+> primero todas las fotos del cliente en MinIO y después dropea su base física y sus filas de control
+> (`ClientesService.eliminar`). El orden importa: las claves de MinIO son `fotos/{clientId}/{clientPhotoId}.jpg`
+> sin ningún prefijo del cliente, así que la tabla `Foto` de su base es el único índice de qué objetos son
+> suyos; si la base se dropeara antes, las fotos quedarían huérfanas (así se llenó el volumen de MinIO: ~2.6 GB
+> de fotos de clientes eliminados). Si MinIO falla se aborta sin tocar la base y se puede reintentar. Antes de
+> este cambio `eliminar` no tocaba MinIO. Los coordinadores descargan datos y fotos antes de borrar un cliente.
+
 > **Nota IP LAN (mobile/web dev):** `apps/web/.env` (`VITE_API_URL`) y `apps/mobile/.env`
 > (`EXPO_PUBLIC_API_URL`), además de `apps/api/.env` (`S3_ENDPOINT`), usan la IP LAN del Mac de
 > desarrollo para que el teléfono (Expo Go) y las URLs de fotos S3 sean alcanzables desde fuera de
