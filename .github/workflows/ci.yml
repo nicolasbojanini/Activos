@@ -12,9 +12,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 9
+      - uses: pnpm/action-setup@v4   # la versión sale de "packageManager" en package.json
 
       - uses: actions/setup-node@v4
         with:
@@ -23,6 +21,9 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma clients
+        run: pnpm --filter api prisma:generate
 
       - name: Lint
         run: pnpm lint
