@@ -182,3 +182,7 @@ funciona offline donde aplica.
 > desarrollo para que el teléfono (Expo Go) y las URLs de fotos S3 sean alcanzables desde fuera de
 > `localhost`. Esa IP cambia con las renovaciones de DHCP — si el móvil o las fotos dejan de conectar,
 > verificar `ipconfig getifaddr en0` contra esos tres archivos antes de asumir otra causa.
+
+
+## Contexto de ADN (historia, decisiones y pendientes del proyecto)
+@CLAUDE.contexto-adn.md
